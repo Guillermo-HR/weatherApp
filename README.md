@@ -78,3 +78,10 @@ This instructions are for setting up the Weather Data Pipeline on a Fedora syste
 
         sudo systemctl status grafana-server
         ```
+
+## 📄 Configuration
+1. **Environment Variables**:
+   Create a `.env` file in the root directory and add the following variables:
+   ```env
+   OPEN_WEATHER_API_KEY=your_api_key
+   ```
