@@ -28,6 +28,6 @@ class Extract:
                 self.api_name,
                 f"****{self.api_key[-4:]}",
                 dt,
-                f"{e}".replace(self.api_key, "****{self.api_key[-4:]}")
+                f"{e}".replace(self.api_key, f"****{self.api_key[-4:]}")
             )
             return {"status": "failed"}
