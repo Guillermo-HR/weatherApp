@@ -14,6 +14,24 @@ from extract import Extract
 from config.secrets import get_secrets
 from config.arguments import get_args
 
+def get_coordinates_mesh(north: float, south: float, east: float, west: float, grid_size: float) -> dict:
+    coordinates = {
+        "lat": [],
+        "lon": []
+    }
+
+    lat = round(north, 3)
+    while lat >= south:
+        coordinates["lat"].append(lat)
+        lat = round(lat - grid_size, 3)
+
+    lon = round(west, 3)
+    while lon <= east:
+        coordinates["lon"].append(lon)
+        lon = round(lon + grid_size, 3)
+
+    return coordinates
+
 def get_extractors(*api_data)-> dict:
     extractors = {}
     for api in api_data:
@@ -66,11 +84,14 @@ def main():
         "api_base_url": "http://api.openweathermap.org/data/2.5/air_pollution?",
     }]
     extractors = get_extractors(*api_data)
-    data_coordinates = {
-        "lat": [19.60, 19.05],
-        "lon": [-98.95, -99.35]
-    }
-
+    data_coordinates = get_coordinates_mesh(
+        north=app_args.max_lat,
+        south=app_args.min_lat,
+        east=app_args.max_lon,
+        west=app_args.min_lon,
+        grid_size=app_args.grid_size
+    )
+    
     data = extract(data_coordinates, extractors)
 
 if __name__ == "__main__":
