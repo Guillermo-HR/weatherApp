@@ -1,0 +1,33 @@
+import requests
+from datetime import datetime, timezone
+import logging
+from typing import Dict
+
+class Extract:
+    def __init__(self, api_name:str, api_key:str, constant_params:str, 
+                 search_params:str, api_base_url:str,):
+        self.api_name = api_name
+        self.api_key = api_key
+        self.api_constant_params = constant_params
+        self.api_search_params = search_params
+        self.api_base_url = api_base_url
+        self.logger = logging.getLogger(f"{api_name}_extractor")
+
+    def get_data(self, lat:float, long:float)->Dict:
+        url = self.api_base_url + self.api_search_params.format(lat=lat, lon=long)
+        url += self.api_constant_params + self.api_key
+        try:
+            response = requests.get(url)
+            response.raise_for_status()
+            data = response.json()
+            return {"status": "success", "data": data}
+        except requests.exceptions.RequestException as e:
+            dt = datetime.now(timezone.utc).timestamp()
+            self.logger.error(
+                "API request failed for (%s) using (%s) at (%f): %s",
+                self.api_name,
+                f"****{self.api_key[-4:]}",
+                dt,
+                f"{e}".replace(self.api_key, "****{self.api_key[-4:]}")
+            )
+            return {"status": "failed"}
