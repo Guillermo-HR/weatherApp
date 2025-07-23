@@ -45,21 +45,22 @@ def get_extractors(*api_data)-> dict:
         )
     return extractors
 
-def extract(data_coordinates:dict, extractors: dict)-> dict:
+def extract(data_coordinates:dict, extractors: dict, grid_size: float)-> dict:
     data = {}
     for name, extractor in extractors.items():
         data[name] = []
 
     for lat in data_coordinates["lat"]:
         for lon in data_coordinates["lon"]:
-            dt = datetime.now(timezone.utc).timestamp()
             for name, extractor in extractors.items():
+                dt = datetime.now(timezone.utc).timestamp()
                 response = extractor.get_data(lat, lon)
                 if response["status"] == "failed":
                     continue
                 data[name].append({
                     "lat": lat,
                     "lon": lon,
+                    "grid_size": grid_size,
                     "data": response["data"],
                     "timestamp": dt
                 })
@@ -91,8 +92,9 @@ def main():
         west=app_args.min_lon,
         grid_size=app_args.grid_size
     )
-    
-    data = extract(data_coordinates, extractors)
+
+    data = extract(data_coordinates, extractors, app_args.grid_size)
+    pass
 
 if __name__ == "__main__":
     main()
