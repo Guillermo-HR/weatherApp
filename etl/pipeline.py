@@ -94,7 +94,6 @@ def main():
     )
 
     data = extract(data_coordinates, extractors, app_args.grid_size)
-    pass
 
 if __name__ == "__main__":
     main()
