@@ -40,15 +40,6 @@ This instructions are for setting up the Weather Data Pipeline on a Fedora syste
         sudo systemctl start postgresql-17.service
 
         sudo systemctl status postgresql-17.service
-
-        # Link database scripts so postgres can find them
-        sudo mkdir /mnt/weatherapp_database
-
-        sudo chown $USER:postgres /mnt/weatherapp_database
-
-        sudo chmod 750 /mnt/weatherapp_database
-        
-        sudo mount --bind ~/Desktop/weatherApp/database /mnt/weatherapp_database
         ```
     * **Grafana**:
         ```bash
@@ -85,3 +76,23 @@ This instructions are for setting up the Weather Data Pipeline on a Fedora syste
    ```env
    OPEN_WEATHER_API_KEY=your_api_key
    ```
+2. **Database Setup**:
+    Give access to postgres user to execute configuration scripts:
+    ```bash
+    sudo mkdir /mnt/weatherapp_database
+
+    sudo chown $USER:postgres /mnt/weatherapp_database
+
+    sudo chmod 750 /mnt/weatherapp_database
+
+    sudo mount --bind <Project route/database> /mnt/weatherapp_database
+
+    sudo su - postgres
+
+    cd /mnt/weatherapp_database
+
+    psql -f main_pt1.sql
+
+    psql -h localhost -p 5432 -U weatherapp_admin_1 -d weatherapp_database -f main_pt2.sql
+    ```
+    
