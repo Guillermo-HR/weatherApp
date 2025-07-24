@@ -10,9 +10,13 @@ Grid size is 0.05 degrees.
 
 from datetime import datetime, timezone 
 
+import logging
 from extract import Extract
 from config.secrets import get_secrets
 from config.arguments import get_args
+
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
 
 def get_coordinates_mesh(north: float, south: float, east: float, west: float, grid_size: float) -> dict:
     coordinates = {
@@ -35,36 +39,42 @@ def get_coordinates_mesh(north: float, south: float, east: float, west: float, g
 def get_extractors(*api_data)-> dict:
     extractors = {}
     for api in api_data:
-        api_name = api["api_name"]
+        api_name = api.get("api_name")
         extractors[api_name] = Extract(
             api_name=api_name,
-            api_key=api["api_key"],
-            constant_params=api["constant_params"],
-            search_params=api["search_params"],
-            api_base_url=api["api_base_url"]
+            api_key=api.get("api_key"),
+            constant_params=api.get("constant_params"),
+            search_params=api.get("search_params"),
+            api_base_url=api.get("api_base_url")
         )
     return extractors
 
 def extract(data_coordinates:dict, extractors: dict, grid_size: float)-> dict:
     data = {}
-    for name, extractor in extractors.items():
-        data[name] = []
+    successful = 0
+    failed = 0
+
+    for extractor_name, extractor in extractors.items():
+        data[extractor_name] = []
 
     for lat in data_coordinates["lat"]:
         for lon in data_coordinates["lon"]:
-            for name, extractor in extractors.items():
+            for extractor_name, extractor in extractors.items():
                 dt = datetime.now(timezone.utc).timestamp()
                 response = extractor.get_data(lat, lon)
                 if response["status"] == "failed":
+                    failed += 1
                     continue
-                data[name].append({
+                data[extractor_name].append({
                     "lat": lat,
                     "lon": lon,
                     "grid_size": grid_size,
-                    "data": response["data"],
+                    "data": response.get("data"),
                     "timestamp": dt
                 })
+                successful += 1
 
+    logging.info(f"Extraction completed: {successful} success, {failed} failed")
     return data
 
 def main():
@@ -75,7 +85,7 @@ def main():
         "api_key": f'&appid={app_secrets["OPEN_WEATHER_API_KEY"]}',
         "constant_params": "&units=metric&lang=es",
         "search_params": "lat={lat}&lon={lon}",
-        "api_base_url": "https://api.openweathermap.org/data/2.5/weather?",
+        "api_base_url": "https://api.openweathermap.org/data/2.5/weather",
     },
     {
         "api_name": "Open weather air quality",
@@ -93,7 +103,7 @@ def main():
         grid_size=app_args.grid_size
     )
 
-    data = extract(data_coordinates, extractors, app_args.grid_size)
+    raw_data = extract(data_coordinates, extractors, app_args.grid_size)
 
 if __name__ == "__main__":
     main()
