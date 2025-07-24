@@ -36,12 +36,12 @@ class Extract:
             data = response.json()
             return {"status": "success", "data": data}
         except requests.exceptions.RequestException as e:
-            dt = datetime.now(timezone.utc).timestamp()
+            timestamp = datetime.now(timezone.utc).timestamp()
             self.logger.error(
                 "API request failed for (%s) using (%s) at (%f): %s",
                 self.api_name,
                 f"****{self.api_key[-4:]}",
-                dt,
+                timestamp,
                 f"{e}".replace(self.api_key, f"****{self.api_key[-4:]}")
             )
             return {"status": "failed"}
