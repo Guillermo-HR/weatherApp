@@ -13,14 +13,20 @@ class Extract:
         self.api_base_url = api_base_url
         self.logger = logging.getLogger(f"{api_name}_extractor")
 
-    def get_data(self, lat:float, long:float)->Dict:
+    def validate_coordinates(self, lat:float, long:float) -> bool:
         if not isinstance(lat, (float, int)) or not isinstance(long, (float, int)):
-            self.logger.error("Coordenadas inválidas: lat=%f, long=%f", lat, long)
-            return {"status": "failed", "error": "Invalid coordinates"}
+            self.logger.error("Invalid coordinate type: lat=%f, long=%f", lat, long)
+            return False
         
         if not (-90 <= lat <= 90) or not (-180 <= long <= 180):
-            self.logger.error("Coordenadas fuera de rango: lat=%f, long=%f", lat, long)
-            return {"status": "failed", "error": "Coordinates out of bounds"}
+            self.logger.error("Coordinates out of bounds: lat=%f, long=%f", lat, long)
+            return False
+
+        return True
+
+    def get_data(self, lat:float, long:float)->Dict:
+        if not self.validate_coordinates(lat, long):
+            return {"status": "failed"}
     
         url = self.api_base_url + self.api_search_params.format(lat=lat, lon=long)
         url += self.api_constant_params + self.api_key
