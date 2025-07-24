@@ -14,10 +14,18 @@ class Extract:
         self.logger = logging.getLogger(f"{api_name}_extractor")
 
     def get_data(self, lat:float, long:float)->Dict:
+        if not isinstance(lat, (float, int)) or not isinstance(long, (float, int)):
+            self.logger.error("Coordenadas inválidas: lat=%f, long=%f", lat, long)
+            return {"status": "failed", "error": "Invalid coordinates"}
+        
+        if not (-90 <= lat <= 90) or not (-180 <= long <= 180):
+            self.logger.error("Coordenadas fuera de rango: lat=%f, long=%f", lat, long)
+            return {"status": "failed", "error": "Coordinates out of bounds"}
+    
         url = self.api_base_url + self.api_search_params.format(lat=lat, lon=long)
         url += self.api_constant_params + self.api_key
         try:
-            response = requests.get(url)
+            response = requests.get(url, timeout=10)
             response.raise_for_status()
             data = response.json()
             return {"status": "success", "data": data}
