@@ -4,13 +4,13 @@ create table zone (
     south float not null,
     east float not null,
     west float not null,
-    gride_size float not null,
+    grid_size float not null,
 
     constraint zone_north_south_check check (north > south),
     constraint zone_east_west_check check (east > west),
-    constraint zone_gride_size_check check (gride_size > 0),
+    constraint zone_grid_size_check check (grid_size > 0),
     constraint zone_north_south_east_west_grid_size_uq unique (
-        north, south, east, west, gride_size)
+        north, south, east, west, grid_size)
 );
 
 create table api (
@@ -32,6 +32,7 @@ create table weather (
     constraint weather_zone_id_fkey foreign key (zone_id) references zone(id),
     constraint weather_api_id_fkey foreign key (api_id) references api(id)
 );
+CREATE INDEX idx_weather_recorded_at ON weather(recorded_at);
 
 create table air_quality (
     id serial primary key,
@@ -50,3 +51,4 @@ create table air_quality (
     constraint air_quality_zone_id_fkey foreign key (zone_id) references zone(id),
     constraint air_quality_api_id_fkey foreign key (api_id) references api(id)
 );
+CREATE INDEX idx_air_quality_recorded_at ON air_quality(recorded_at);
