@@ -9,9 +9,9 @@ Grid size is 0.05 degrees.
 """
 
 from datetime import datetime, timezone 
-
 import logging
-from extract import Extract
+
+from Extract import Extract
 from config.secrets import get_secrets
 from config.arguments import get_args
 
@@ -85,7 +85,7 @@ def main():
         "api_key": f'&appid={app_secrets["OPEN_WEATHER_API_KEY"]}',
         "constant_params": "&units=metric&lang=es",
         "search_params": "lat={lat}&lon={lon}",
-        "api_base_url": "https://api.openweathermap.org/data/2.5/weather",
+        "api_base_url": "https://api.openweathermap.org/data/2.5/weather?",
     },
     {
         "api_name": "Open weather air quality",
