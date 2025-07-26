@@ -3,17 +3,35 @@ import logging
 class OpenWeatherAirQualityTransformer:
     def __init__(self):
         self.api_name = "Open weather air quality"
+        self.metadata_keys = ["lat", "lon", "grid_size", "data", "timestamp"]
+        self.data_keys = ["co", "no", "no2", "o3", "so2", "pm2_5", "pm10", "nh3"]
+        self.rules = {
+            "lat": {"type": (float, int), "min": -90, "max": 90},
+            "lon": {"type": (float, int), "min": -180, "max": 180},
+            "grid_size": {"type": (float, int), "min": 0.009},
+            "timestamp": {"type": (float, int), "min": 0},
+            "co": {"type": (float, int), "min": 0},
+            "no": {"type": (float, int), "min": 0},
+            "no2": {"type": (float, int), "min": 0},
+            "o3": {"type": (float, int), "min": 0},
+            "so2": {"type": (float, int), "min": 0},
+            "pm2_5": {"type": (float, int), "min": 0},
+            "pm10": {"type": (float, int), "min": 0},
+            "nh3": {"type": (float, int), "min": 0},
+        }
         self.logger = logging.getLogger(f"{self.api_name}_extractor")
 
     def validate_structure(self, raw_data:dict) -> bool:
-        metadata_keys = ["lat", "lon", "grid_size", "data", "timestamp"]
-        for key in metadata_keys:
+        for key in self.metadata_keys:
             if key not in raw_data:
                 self.logger.error(f"Missing key in raw data: {key}")
                 return False
             
-        data_keys = ["co", "no", "no2", "o3", "so2", "pm2_5", "pm10", "nh3"]
-        for key in data_keys:
+        if type(raw_data.get("data")) is not dict:
+            self.logger.error("Invalid data structure.")
+            return False
+
+        for key in self.data_keys:
             if key not in raw_data['data']['list'][0]["components"]:
                 self.logger.error(f"Missing key in raw data: {key}")
                 return False
@@ -24,22 +42,20 @@ class OpenWeatherAirQualityTransformer:
                 return False
         return True
 
-    def validate_data(self, raw_data:dict) -> bool:
-        if not all([value for value in raw_data.values()]):
-            self.logger.error("One or more required fields are missing in the raw data.")
-            return False
-        
-        numeric_keys = ["lat", "lon", "grid_size", "timestamp", "co", "no", "no2", "o3", "so2", "pm2_5", 
-                        "pm10", "nh3"]
-        if not all([isinstance(raw_data.get(key), (int, float)) for key in numeric_keys]):
-            self.logger.error("One or more values in the raw data are not numeric.")
-            return False
+    def validate_data(self, data: dict) -> bool:
+        for field, rule in self.rules.items():
+            value = data.get(field)
+            if not isinstance(value, rule["type"]):
+                self.logger.error(f"Invalid type for {field}: {type(value)}")
+                return False
+            
+            if rule.get("min") is not None and value < rule["min"]:  # type: ignore
+                self.logger.error(f"Value out of range for {field}: {value}")
+                return False
 
-        positive_keys = ["co", "no", "no2", "o3", "so2", "pm2_5", "pm10", "nh3"]
-        if not all([raw_data.get(key) > 0 for key in positive_keys]): # type: ignore
-            self.logger.error("One or more values in the raw data are out of range.")
-            return False
-        
+            if rule.get("max") is not None and value > rule["max"]:  # type: ignore
+                self.logger.error(f"Value out of range for {field}: {value}")
+                return False
         return True
 
     def transform(self, raw_data:dict) -> dict:
@@ -58,6 +74,7 @@ class OpenWeatherAirQualityTransformer:
             "nh3": raw_data["data"]["list"][0]["components"].get("nh3"),
         }
 
-        if self.validate_data(transformed_data):
-            return transformed_data
-        return {}
+        if not self.validate_data(transformed_data):
+            return {}
+        transformed_data["timestamp"] = int(transformed_data["timestamp"])
+        return transformed_data

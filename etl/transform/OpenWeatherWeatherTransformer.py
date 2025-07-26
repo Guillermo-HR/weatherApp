@@ -3,17 +3,30 @@ import logging
 class OpenWeatherWeatherTransformer:
     def __init__(self):
         self.api_name = "Open weather weather"
+        self.metadata_keys = ["lat", "lon", "grid_size", "data", "timestamp"]
+        self.data_keys = ["temp", "humidity", "pressure"]
+        self.rules = {
+            "lat": {"type": (float, int), "min": -90, "max": 90},
+            "lon": {"type": (float, int), "min": -180, "max": 180},
+            "grid_size": {"type": (float, int), "min": 0.009},
+            "timestamp": {"type": (float, int), "min": 0},
+            "temperature": {"type": (float, int), "min": -273.15},
+            "humidity": {"type": (float, int), "min": 0, "max": 100},
+            "pressure": {"type": (float, int), "min": 0, "max": 108000}
+        }
         self.logger = logging.getLogger(f"{self.api_name}_extractor")
 
     def validate_structure(self, raw_data:dict) -> bool:
-        metadata_keys = ["lat", "lon", "grid_size", "data", "timestamp"]
-        for key in metadata_keys:
+        for key in self.metadata_keys:
             if key not in raw_data:
                 self.logger.error(f"Missing key in raw data: {key}")
                 return False
 
-        data_keys = ["temp", "humidity", "pressure"]
-        for key in data_keys:
+        if type(raw_data.get("data")) is not dict:
+            self.logger.error("Invalid data structure.")
+            return False
+
+        for key in self.data_keys:
             if key not in raw_data["data"]["main"]:
                 self.logger.error(f"Missing key in raw data: {key}")
                 return False
@@ -24,21 +37,20 @@ class OpenWeatherWeatherTransformer:
                 return False
         return True
 
-    def validate_data(self, raw_data:dict) -> bool:
-        if not all([value for value in raw_data.values()]):
-            self.logger.error("One or more required fields are missing in the raw data.")
-            return False
-        
-        numeric_keys = ["temperature", "humidity", "pressure"]
-        if not all([isinstance(raw_data.get(key), (int, float)) for key in numeric_keys]):
-            self.logger.error("One or more values in the raw data are not numeric.")
-            return False
+    def validate_data(self, data: dict) -> bool:
+        for field, rule in self.rules.items():
+            value = data.get(field)
+            if not isinstance(value, rule["type"]):
+                self.logger.error(f"Invalid type for {field}: {type(value)}")
+                return False
+            
+            if rule.get("min") is not None and value < rule["min"]:  # type: ignore
+                self.logger.error(f"Value out of range for {field}: {value}")
+                return False
 
-        positive_keys = ["humidity", "pressure"]
-        if not all([raw_data.get(key) > 0 for key in positive_keys]): # type: ignore
-            self.logger.error("One or more values in the raw data are out of range.")
-            return False
-        
+            if rule.get("max") is not None and value > rule["max"]:  # type: ignore
+                self.logger.error(f"Value out of range for {field}: {value}")
+                return False
         return True
 
     def transform(self, raw_data:dict) -> dict:
@@ -52,7 +64,7 @@ class OpenWeatherWeatherTransformer:
             "pressure": raw_data['data']['main'].get("pressure")
         }
 
-        if self.validate_data(transformed_data):
-            return transformed_data
-        
-        return {}
+        if not self.validate_data(transformed_data):
+            return {}
+        transformed_data["timestamp"] = int(transformed_data["timestamp"])
+        return transformed_data
