@@ -72,10 +72,16 @@ This instructions are for setting up the Weather Data Pipeline on a Fedora syste
 
 ## 📄 Configuration
 1. **Environment Variables**:
-   Create a `.env` file in the root directory and add the following variables:
-   ```env
-   OPEN_WEATHER_API_KEY=your_api_key
-   ```
+    Create a `.env` file in the root directory and add the following variables:
+    ```env
+    OPEN_WEATHER_API_KEY=your_api_key
+
+    DATABASE_USER=your_username
+    DATABASE_PASSWORD=your_password
+    DATABASE_HOST=database_host
+    DATABASE_PORT=database_port
+    DATABASE_NAME=weatherapp_etl
+    ```
 2. **Database Setup**:
     Give access to postgres user to execute configuration scripts:
     ```bash
