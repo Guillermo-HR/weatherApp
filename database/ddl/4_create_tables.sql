@@ -1,4 +1,4 @@
-create table zone (
+create table weatherapp_schema.zone (
     id serial primary key,
     north float not null,
     south float not null,
@@ -13,14 +13,14 @@ create table zone (
         north, south, east, west, grid_size)
 );
 
-create table api (
+create table weatherapp_schema.api (
     id serial primary key,
     name text not null,
 
     constraint api_name_uq unique (name)
 );
 
-create table weather (
+create table weatherapp_schema.weather (
     id serial primary key,
     temperature double precision not null,
     humidity double precision not null,
@@ -29,12 +29,12 @@ create table weather (
     zone_id integer not null,
     api_id integer not null,
 
-    constraint weather_zone_id_fkey foreign key (zone_id) references zone(id),
-    constraint weather_api_id_fkey foreign key (api_id) references api(id)
+    constraint weather_zone_id_fkey foreign key (zone_id) references weatherapp_schema.zone(id),
+    constraint weather_api_id_fkey foreign key (api_id) references weatherapp_schema.api(id)
 );
-CREATE INDEX idx_weather_recorded_at ON weather(recorded_at);
+CREATE INDEX idx_weather_recorded_at ON weatherapp_schema.weather(recorded_at);
 
-create table air_quality (
+create table weatherapp_schema.air_quality (
     id serial primary key,
     co float not null,
     no float not null,
@@ -48,7 +48,7 @@ create table air_quality (
     zone_id integer not null,
     api_id integer not null,
 
-    constraint air_quality_zone_id_fkey foreign key (zone_id) references zone(id),
-    constraint air_quality_api_id_fkey foreign key (api_id) references api(id)
+    constraint air_quality_zone_id_fkey foreign key (zone_id) references weatherapp_schema.zone(id),
+    constraint air_quality_api_id_fkey foreign key (api_id) references weatherapp_schema.api(id)
 );
-CREATE INDEX idx_air_quality_recorded_at ON air_quality(recorded_at);
+CREATE INDEX idx_air_quality_recorded_at ON weatherapp_schema.air_quality(recorded_at);
