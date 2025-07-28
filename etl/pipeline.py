@@ -1,11 +1,5 @@
 """
 Pipeline for extracting, transforming, and loading weather and air quality data.
-Limits for Mexico City are:
-* North: 19.60
-* South: 19.05
-* East: -98.95
-* West: -99.35
-Grid size is 0.05 degrees.
 """
 
 from datetime import datetime, timezone 
@@ -14,6 +8,8 @@ import logging
 from Extract import Extract
 from transform.OpenWeatherAirQualityTransformer import OpenWeatherAirQualityTransformer
 from transform.OpenWeatherWeatherTransformer import OpenWeatherWeatherTransformer
+from load.OpenWeatherAirQualityLoader import OpenWeatherAirQualityLoader
+from load.OpenWeatherWeatherLoader import OpenWeatherWeatherLoader
 from config.secrets import get_secrets
 from config.arguments import get_args
 
@@ -69,6 +65,17 @@ def get_transformers(*api_data:dict) -> dict:
 
     return transformers
 
+def get_loaders(*api_data:dict) -> dict:
+    loaders = {}
+    for api in api_data:
+        api_name = api.get("api_name")
+        if api_name == "Open weather air quality":
+            loaders[api_name] = OpenWeatherAirQualityLoader()
+        elif api_name == "Open weather weather":
+            loaders[api_name] = OpenWeatherWeatherLoader()
+
+    return loaders
+
 def extract(data_coordinates:dict, extractors: dict, grid_size: float)-> dict:
     data = {}
     successful = 0
@@ -121,6 +128,20 @@ def transform(raw_data: dict, transformers: dict) -> dict:
     logging.info(f"Transformation completed: {successful} success, {failed} failed")
     return transformed_data
 
+def load(transformed_data: dict, loaders: dict) -> None:
+    successful = 0
+    failed = 0
+
+    for source, data in transformed_data.items():
+        loader = loaders.get(source)
+        prepared_data = loader.prepare_data(data) # type: ignore
+        successful_loads, failed_loads = loader.load_data(prepared_data) # type: ignore
+        successful += successful_loads
+        failed += failed_loads
+
+    logging.info(f"Loading completed: {successful} success, {failed} failed")
+
+
 def main():
     app_secrets = get_secrets()
     app_args = get_args()
@@ -146,10 +167,12 @@ def main():
         grid_size=app_args.grid_size
     )
     extractors = get_extractors(*api_data)
+    loaders = get_loaders(*api_data)
     transformers = get_transformers(*api_data)
-
+    loaders = get_loaders(*api_data)
     raw_data = extract(data_coordinates, extractors, app_args.grid_size)
     transformed_data = transform(raw_data, transformers)
+    load(transformed_data, loaders)
 
 if __name__ == "__main__":
     main()
