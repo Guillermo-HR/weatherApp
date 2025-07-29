@@ -11,4 +11,7 @@
 -- 11. Crear usuarios finales (lo último, después de tener todo configurado)
 \i users/5_create_users.sql
 
+-- 12. Load API data
+\i dml/6_load_api_data.sql
+
 \! echo "Second part of the WeatherApp database configuration completed successfully."
