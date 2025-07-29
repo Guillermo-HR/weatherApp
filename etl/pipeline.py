@@ -65,14 +65,22 @@ def get_transformers(*api_data:dict) -> dict:
 
     return transformers
 
-def get_loaders(*api_data:dict) -> dict:
+def get_loaders(*api_data:dict, db_user:str, db_password:str, 
+                 db_host:str, db_port:int, db_name:str) -> dict:
     loaders = {}
     for api in api_data:
         api_name = api.get("api_name")
         if api_name == "Open weather air quality":
-            loaders[api_name] = OpenWeatherAirQualityLoader()
+            loaders[api_name] = OpenWeatherAirQualityLoader(
+                db_user=db_user,
+                db_password=db_password,
+                db_host=db_host,
+                db_port=db_port,
+                db_name=db_name
+            )
         elif api_name == "Open weather weather":
-            loaders[api_name] = OpenWeatherWeatherLoader()
+            loaders[api_name] = OpenWeatherWeatherLoader(
+            )
 
     return loaders
 
@@ -145,20 +153,22 @@ def load(transformed_data: dict, loaders: dict) -> None:
 def main():
     app_secrets = get_secrets()
     app_args = get_args()
-    api_data = [{
-        "api_name": "Open weather weather",
-        "api_key": f'&appid={app_secrets["OPEN_WEATHER_API_KEY"]}',
-        "constant_params": "&units=metric&lang=es",
-        "search_params": "lat={lat}&lon={lon}",
-        "api_base_url": "https://api.openweathermap.org/data/2.5/weather?",
-    },
-    {
-        "api_name": "Open weather air quality",
-        "api_key": f'&appid={app_secrets["OPEN_WEATHER_API_KEY"]}',
-        "constant_params": "&lang=es",
-        "search_params": "lat={lat}&lon={lon}",
-        "api_base_url": "http://api.openweathermap.org/data/2.5/air_pollution?",
-    }]
+    api_data = [
+        {
+            "api_name": "Open weather weather",
+            "api_key": f'&appid={app_secrets["OPEN_WEATHER_API_KEY"]}',
+            "constant_params": "&units=metric&lang=es",
+            "search_params": "lat={lat}&lon={lon}",
+            "api_base_url": "https://api.openweathermap.org/data/2.5/weather?",
+        },
+        {
+            "api_name": "Open weather air quality",
+            "api_key": f'&appid={app_secrets["OPEN_WEATHER_API_KEY"]}',
+            "constant_params": "&lang=es",
+            "search_params": "lat={lat}&lon={lon}",
+            "api_base_url": "http://api.openweathermap.org/data/2.5/air_pollution?",
+        }
+    ]
     data_coordinates = get_coordinates_mesh(
         north=app_args.max_lat,
         south=app_args.min_lat,
@@ -167,9 +177,13 @@ def main():
         grid_size=app_args.grid_size
     )
     extractors = get_extractors(*api_data)
-    loaders = get_loaders(*api_data)
     transformers = get_transformers(*api_data)
-    loaders = get_loaders(*api_data)
+    loaders = get_loaders(*api_data, db_user=app_secrets["DB_USER"],
+                          db_password=app_secrets["DB_PASSWORD"],
+                          db_host=app_secrets["DB_HOST"],
+                          db_port=app_secrets["DB_PORT"],
+                          db_name=app_secrets["DB_NAME"])
+    
     raw_data = extract(data_coordinates, extractors, app_args.grid_size)
     transformed_data = transform(raw_data, transformers)
     load(transformed_data, loaders)
