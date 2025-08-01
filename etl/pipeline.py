@@ -5,7 +5,7 @@ Pipeline for extracting, transforming, and loading weather and air quality data.
 from datetime import datetime, timezone 
 import logging
 from sqlalchemy import create_engine
-import json
+import pandas as pd
 
 from Extract import Extract
 from transform.OpenWeatherAirQualityTransformer import OpenWeatherAirQualityTransformer
@@ -16,6 +16,11 @@ from config.arguments import get_args
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
+
+def get_engine(db_user:str, db_password:str, 
+               db_host:str, db_port:int, db_name:str):
+    url = f'postgresql+psycopg2://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}'
+    return create_engine(url)
 
 def get_coordinates_mesh(max_latitude: float, min_latitude: float, max_longitude: float, 
                          min_longitude: float, grid_size: float) -> dict:
@@ -35,11 +40,6 @@ def get_coordinates_mesh(max_latitude: float, min_latitude: float, max_longitude
         longitude = round(longitude - grid_size, 3)
 
     return coordinates
-
-def get_engine(db_user:str, db_password:str, 
-               db_host:str, db_port:int, db_name:str):
-    url = f'postgresql+psycopg2://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}'
-    return create_engine(url)
 
 def get_extractors(*api_data:dict)-> dict:
     extractors = {}
@@ -61,22 +61,67 @@ def get_extractors(*api_data:dict)-> dict:
         )
     return extractors
 
-def get_transformers(*api_data:dict) -> dict:
+def get_transformers(zone_ids: pd.DataFrame, api_ids: pd.DataFrame, *api_data:dict) -> dict:
     transformers = {}
     for api in api_data:
         api_name = api.get("api_name")
+        api_id = api_ids[api_ids["name"] == api_name]["id"].values[0]
         if api_name == "Open Weather Air Quality":
-            transformers[api_name] = OpenWeatherAirQualityTransformer()
+            transformers[api_name] = OpenWeatherAirQualityTransformer(zone_ids, api_id)
         elif api_name == "Open Weather Weather":
-            transformers[api_name] = OpenWeatherWeatherTransformer()
+            transformers[api_name] = OpenWeatherWeatherTransformer(zone_ids, api_id)
 
     return transformers
 
-def add_missing_coordinates(data_coordinates:dict, engine) -> None:
-    
-    pass
+def get_zone_id(data_coordinates: dict, grid_size: float, engine) -> pd.DataFrame:
+    latitude = [lat for lat in data_coordinates["latitude"]
+                for lon in range(len(data_coordinates["longitude"]))]
+    longitude = data_coordinates["longitude"] * len(data_coordinates["latitude"])
 
-def create_unify_data(transformed_data: dict) -> dict:
+    query = f"""
+        SELECT id, latitude, longitude, grid_size
+        FROM zone
+        WHERE latitude IN ({','.join(map(str, latitude))})
+        AND longitude IN ({','.join(map(str, longitude))})
+        AND grid_size = {grid_size};
+    """
+
+    return pd.read_sql(query, engine)
+
+def get_api_id(engine) -> pd.DataFrame:
+    query = "SELECT id, name FROM api;"
+
+    return pd.read_sql(query, engine)
+
+def add_missing_coordinates(data_coordinates:dict, grid_size:float, engine) -> None:
+    latitude = [lat for lat in data_coordinates["latitude"] 
+                     for lon in range(len(data_coordinates["longitude"]))]
+    longitude = data_coordinates["longitude"] * len(data_coordinates["latitude"])
+    
+    candidates = pd.DataFrame({
+        "latitude": latitude,
+        "longitude": longitude,
+        "grid_size": [grid_size] * len(latitude)
+    })
+
+    lat_str = ','.join(map(str, latitude))
+    lon_str = ','.join(map(str, longitude))
+    query = f"""
+        SELECT latitude, longitude, grid_size
+        FROM zone
+        WHERE latitude IN ({lat_str})
+        AND longitude IN ({lon_str})
+        AND grid_size = {grid_size};
+    """
+    existing = pd.read_sql(query, engine)
+
+    merged = candidates.merge(existing, on=["latitude", "longitude", "grid_size"], how="left", indicator=True)
+    missing = merged[merged["_merge"] == "left_only"].drop(columns=["_merge"])
+
+    if not missing.empty:
+        missing.to_sql("zone", engine, if_exists="append", index=False)
+
+def unify_data(transformed_data: dict) -> dict:
     unified_data = {}
     for source, data in transformed_data.items():
         if not data:
@@ -138,16 +183,24 @@ def transform(raw_data: dict, transformers: dict) -> dict:
             transformed_data[source].append(transformed_record)
             successful += 1
 
-    unified_data = create_unify_data(transformed_data)
+    unified_data = unify_data(transformed_data)
 
     logging.info(f"Transformation completed: {successful} success, {failed} failed")
     return unified_data
 
 def load(transformed_data: dict, loader: Load) -> None:
+    table_names = {
+        "Open Weather Weather": "weather",
+        "Open Weather Air Quality": "air_quality"
+    }
     successful = 0
     failed = 0
 
-    for table, data in transformed_data.items():
+    for source, data in transformed_data.items():
+        table = table_names.get(source)
+        if not table:
+            logging.warning(f"Unknown source: {source}")
+            continue
         successful_loads, failed_loads = loader.load_data(data, table)
         successful += successful_loads
         failed += failed_loads
@@ -173,13 +226,6 @@ def main():
             "api_base_url": "http://api.openweathermap.org/data/2.5/air_pollution?",
         }
     ]
-    data_coordinates = get_coordinates_mesh(
-        max_latitude=app_args.max_latitude,
-        min_latitude=app_args.min_latitude,
-        max_longitude=app_args.max_longitude,
-        min_longitude=app_args.min_longitude,
-        grid_size=app_args.grid_size
-    )
     engine = get_engine(
         db_user=app_secrets["DB_USER"],
         db_password=app_secrets["DB_PASSWORD"],
@@ -187,19 +233,25 @@ def main():
         db_port=app_secrets["DB_PORT"],
         db_name=app_secrets["DB_NAME"]
     )
+    data_coordinates = get_coordinates_mesh(
+        max_latitude=app_args.max_latitude,
+        min_latitude=app_args.min_latitude,
+        max_longitude=app_args.max_longitude,
+        min_longitude=app_args.min_longitude,
+        grid_size=app_args.grid_size
+    )
+    
+    add_missing_coordinates(data_coordinates, app_args.grid_size, engine)
+    zone_ids = get_zone_id(data_coordinates, app_args.grid_size, engine)
+    api_ids = get_api_id(engine)
+
     extractors = get_extractors(*api_data)
-    transformers = get_transformers(*api_data)
+    transformers = get_transformers(zone_ids, api_ids, *api_data)
     loader = Load(engine)
 
-    add_missing_coordinates(data_coordinates, engine)
-
     raw_data = extract(data_coordinates, extractors, app_args.grid_size)
-    with open("raw_data.json", "w") as f:
-        json.dump(raw_data, f, indent=4)
     transformed_data = transform(raw_data, transformers)
-    with open("transformed_data.json", "w") as f:
-        json.dump(transformed_data, f, indent=4)
-#    load(transformed_data, loader)
+    load(transformed_data, loader)
 
 if __name__ == "__main__":
     main()
