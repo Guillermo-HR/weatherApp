@@ -1,16 +1,11 @@
 create table weatherapp_schema.zone (
     id serial primary key,
-    north float not null,
-    south float not null,
-    east float not null,
-    west float not null,
+    latitude float not null,
+    longitude float not null,
     grid_size float not null,
 
-    constraint zone_north_south_check check (north > south),
-    constraint zone_east_west_check check (east > west),
     constraint zone_grid_size_check check (grid_size > 0),
-    constraint zone_north_south_east_west_grid_size_uq unique (
-        north, south, east, west, grid_size)
+    constraint zone_latitude_longitude_grid_size_uq unique (latitude, longitude, grid_size)
 );
 
 create table weatherapp_schema.api (
