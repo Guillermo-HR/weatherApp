@@ -3,11 +3,11 @@ import logging
 class OpenWeatherWeatherTransformer:
     def __init__(self):
         self.api_name = "Open weather weather"
-        self.metadata_keys = ["lat", "lon", "grid_size", "data", "timestamp"]
+        self.metadata_keys = ["latitude", "longitude", "grid_size", "data", "timestamp"]
         self.data_keys = ["temp", "humidity", "pressure"]
         self.rules = {
-            "lat": {"type": (float, int), "min": -90, "max": 90},
-            "lon": {"type": (float, int), "min": -180, "max": 180},
+            "latitude": {"type": (float, int), "min": -90, "max": 90},
+            "longitude": {"type": (float, int), "min": -180, "max": 180},
             "grid_size": {"type": (float, int), "min": 0.009},
             "timestamp": {"type": (float, int), "min": 0},
             "temperature": {"type": (float, int), "min": -273.15},
@@ -55,8 +55,8 @@ class OpenWeatherWeatherTransformer:
 
     def transform(self, raw_data:dict) -> dict:
         transformed_data = {
-            "lat": raw_data.get("lat"),
-            "lon": raw_data.get("lon"),
+            "latitude": raw_data.get("latitude"),
+            "longitude": raw_data.get("longitude"),
             "grid_size": raw_data.get("grid_size"),
             "timestamp": raw_data.get("timestamp"),
             "temperature": raw_data['data']['main'].get("temp"),

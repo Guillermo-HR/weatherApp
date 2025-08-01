@@ -3,11 +3,11 @@ import logging
 class OpenWeatherAirQualityTransformer:
     def __init__(self):
         self.api_name = "Open weather air quality"
-        self.metadata_keys = ["lat", "lon", "grid_size", "data", "timestamp"]
+        self.metadata_keys = ["latitude", "longitude", "grid_size", "data", "timestamp"]
         self.data_keys = ["co", "no", "no2", "o3", "so2", "pm2_5", "pm10", "nh3"]
         self.rules = {
-            "lat": {"type": (float, int), "min": -90, "max": 90},
-            "lon": {"type": (float, int), "min": -180, "max": 180},
+            "latitude": {"type": (float, int), "min": -90, "max": 90},
+            "longitude": {"type": (float, int), "min": -180, "max": 180},
             "grid_size": {"type": (float, int), "min": 0.009},
             "timestamp": {"type": (float, int), "min": 0},
             "co": {"type": (float, int), "min": 0},
@@ -60,8 +60,8 @@ class OpenWeatherAirQualityTransformer:
 
     def transform(self, raw_data:dict) -> dict:
         transformed_data = {
-            "lat": raw_data.get("lat"),
-            "lon": raw_data.get("lon"),
+            "latitude": raw_data.get("latitude"),
+            "longitude": raw_data.get("longitude"),
             "grid_size": raw_data.get("grid_size"),
             "timestamp": raw_data.get("timestamp"),
             "co": raw_data["data"]["list"][0]["components"].get("co"),

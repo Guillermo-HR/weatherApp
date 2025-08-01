@@ -10,29 +10,29 @@ import json
 from Extract import Extract
 from transform.OpenWeatherAirQualityTransformer import OpenWeatherAirQualityTransformer
 from transform.OpenWeatherWeatherTransformer import OpenWeatherWeatherTransformer
-from load.OpenWeatherAirQualityLoader import OpenWeatherAirQualityLoader
-from load.OpenWeatherWeatherLoader import OpenWeatherWeatherLoader
+from Load import Load
 from config.secrets import get_secrets
 from config.arguments import get_args
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
-def get_coordinates_mesh(north: float, south: float, east: float, west: float, grid_size: float) -> dict:
+def get_coordinates_mesh(max_latitude: float, min_latitude: float, max_longitude: float, 
+                         min_longitude: float, grid_size: float) -> dict:
     coordinates = {
-        "lat": [],
-        "lon": []
+        "latitude": [],
+        "longitude": []
     }
 
-    lat = round(north, 3)
-    while lat >= south:
-        coordinates["lat"].append(lat)
-        lat = round(lat - grid_size, 3)
+    latitude = round(max_latitude, 3)
+    while latitude >= min_latitude:
+        coordinates["latitude"].append(latitude)
+        latitude = round(latitude - grid_size, 3)
 
-    lon = round(west, 3)
-    while lon <= east:
-        coordinates["lon"].append(lon)
-        lon = round(lon + grid_size, 3)
+    longitude = round(max_longitude, 3)
+    while longitude >= min_longitude:
+        coordinates["longitude"].append(longitude)
+        longitude = round(longitude - grid_size, 3)
 
     return coordinates
 
@@ -72,18 +72,22 @@ def get_transformers(*api_data:dict) -> dict:
 
     return transformers
 
-def get_loaders(*api_data:dict, engine) -> dict:
-    loaders = {}
-    for api in api_data:
-        api_name = api.get("api_name")
-        if api_name == "Open Weather Air Quality":
-            pass
-            #loaders[api_name] = OpenWeatherAirQualityLoader(engine=engine)
-        elif api_name == "Open Weather Weather":
-            pass
-            #loaders[api_name] = OpenWeatherWeatherLoader(engine=engine)
+def add_missing_coordinates(data_coordinates:dict, engine) -> None:
+    
+    pass
 
-    return loaders
+def create_unify_data(transformed_data: dict) -> dict:
+    unified_data = {}
+    for source, data in transformed_data.items():
+        if not data:
+            continue
+        unified_data[source] = {}
+        for record in data:
+            for key, value in record.items():
+                if key not in unified_data[source]:
+                    unified_data[source][key] = []
+                unified_data[source][key].append(value)
+    return unified_data
 
 def extract(data_coordinates:dict, extractors: dict, grid_size: float)-> dict:
     data = {}
@@ -93,17 +97,17 @@ def extract(data_coordinates:dict, extractors: dict, grid_size: float)-> dict:
     for extractor_name in extractors:
         data[extractor_name] = []
 
-    for lat in data_coordinates["lat"]:
-        for lon in data_coordinates["lon"]:
+    for latitude in data_coordinates["latitude"]:
+        for longitude in data_coordinates["longitude"]:
             for extractor_name, extractor in extractors.items():
                 timestamp = datetime.now(timezone.utc).timestamp()
-                response = extractor.get_data(lat, lon)
+                response = extractor.get_data(latitude, longitude)
                 if response["status"] == "failed":
                     failed += 1
                     continue
                 data[extractor_name].append({
-                    "lat": lat,
-                    "lon": lon,
+                    "latitude": latitude,
+                    "longitude": longitude,
                     "grid_size": grid_size,
                     "data": response.get("data"),
                     "timestamp": timestamp
@@ -134,21 +138,21 @@ def transform(raw_data: dict, transformers: dict) -> dict:
             transformed_data[source].append(transformed_record)
             successful += 1
 
-    logging.info(f"Transformation completed: {successful} success, {failed} failed")
-    return transformed_data
+    unified_data = create_unify_data(transformed_data)
 
-def load(transformed_data: dict, loaders: dict) -> None:
+    logging.info(f"Transformation completed: {successful} success, {failed} failed")
+    return unified_data
+
+def load(transformed_data: dict, loader: Load) -> None:
     successful = 0
     failed = 0
 
-    for source, data in transformed_data.items():
-        loader = loaders.get(source)
-        successful_loads, failed_loads = loader.load_data(data) # type: ignore
+    for table, data in transformed_data.items():
+        successful_loads, failed_loads = loader.load_data(data, table)
         successful += successful_loads
         failed += failed_loads
 
     logging.info(f"Loading completed: {successful} success, {failed} failed")
-
 
 def main():
     app_secrets = get_secrets()
@@ -158,22 +162,22 @@ def main():
             "api_name": "Open Weather Weather",
             "api_key": f'&appid={app_secrets["OPEN_WEATHER_API_KEY"]}',
             "constant_params": "&units=metric&lang=es",
-            "search_params": "lat={lat}&lon={lon}",
+            "search_params": "lat={latitude}&lon={longitude}",
             "api_base_url": "https://api.openweathermap.org/data/2.5/weather?",
         },
         {
             "api_name": "Open Weather Air Quality",
             "api_key": f'&appid={app_secrets["OPEN_WEATHER_API_KEY"]}',
             "constant_params": "&lang=es",
-            "search_params": "lat={lat}&lon={lon}",
+            "search_params": "lat={latitude}&lon={longitude}",
             "api_base_url": "http://api.openweathermap.org/data/2.5/air_pollution?",
         }
     ]
     data_coordinates = get_coordinates_mesh(
-        north=app_args.max_lat,
-        south=app_args.min_lat,
-        east=app_args.max_lon,
-        west=app_args.min_lon,
+        max_latitude=app_args.max_latitude,
+        min_latitude=app_args.min_latitude,
+        max_longitude=app_args.max_longitude,
+        min_longitude=app_args.min_longitude,
         grid_size=app_args.grid_size
     )
     engine = get_engine(
@@ -185,7 +189,9 @@ def main():
     )
     extractors = get_extractors(*api_data)
     transformers = get_transformers(*api_data)
-    loaders = get_loaders(*api_data, engine=engine)
+    loader = Load(engine)
+
+    add_missing_coordinates(data_coordinates, engine)
 
     raw_data = extract(data_coordinates, extractors, app_args.grid_size)
     with open("raw_data.json", "w") as f:
@@ -193,7 +199,7 @@ def main():
     transformed_data = transform(raw_data, transformers)
     with open("transformed_data.json", "w") as f:
         json.dump(transformed_data, f, indent=4)
-#    load(transformed_data, loaders)
+#    load(transformed_data, loader)
 
 if __name__ == "__main__":
     main()

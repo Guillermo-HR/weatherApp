@@ -13,22 +13,24 @@ class Extract:
         self.api_base_url = api_base_url
         self.logger = logging.getLogger(f"{api_name}_extractor")
 
-    def validate_coordinates(self, lat:float, long:float) -> bool:
-        if not isinstance(lat, (float, int)) or not isinstance(long, (float, int)):
-            self.logger.error("Invalid coordinate type: lat=%f, long=%f", lat, long)
+    def validate_coordinates(self, latitude:float, longitude:float) -> bool:
+        if not isinstance(latitude, (float, int)) or not isinstance(longitude, (float, int)):
+            self.logger.error("Invalid coordinate type: latitude=%f, longitude=%f", 
+                              latitude, longitude)
             return False
         
-        if not (-90 <= lat <= 90) or not (-180 <= long <= 180):
-            self.logger.error("Coordinates out of bounds: lat=%f, long=%f", lat, long)
+        if not (-90 <= latitude <= 90) or not (-180 <= longitude <= 180):
+            self.logger.error("Coordinates out of bounds: latitude=%f, longitude=%f", 
+                              latitude, longitude)
             return False
 
         return True
 
-    def get_data(self, lat:float, long:float)->Dict:
-        if not self.validate_coordinates(lat, long):
+    def get_data(self, latitude:float, longitude:float)->Dict:
+        if not self.validate_coordinates(latitude, longitude):
             return {"status": "failed"}
-    
-        url = self.api_base_url + self.api_search_params.format(lat=lat, lon=long)
+        
+        url = self.api_base_url + self.api_search_params.format(latitude=latitude, longitude=longitude)
         url += self.api_constant_params + self.api_key
         try:
             response = requests.get(url, timeout=10)
