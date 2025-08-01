@@ -6,9 +6,8 @@ from typing import Dict
 def get_secrets()->Dict:
     load_dotenv()
 
-    OPEN_WEATHER_API_KEY = os.getenv("OPEN_WEATHER_API_KEY")
     return {
-        "OPEN_WEATHER_API_KEY": OPEN_WEATHER_API_KEY,
+        "OPEN_WEATHER_API_KEY": os.getenv("OPEN_WEATHER_API_KEY"),
         "DB_USER": os.getenv("DATABASE_USER"),
         "DB_PASSWORD": os.getenv("DATABASE_PASSWORD"),
         "DB_HOST": os.getenv("DATABASE_HOST"),
