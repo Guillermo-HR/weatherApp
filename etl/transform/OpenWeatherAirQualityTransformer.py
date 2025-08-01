@@ -1,15 +1,15 @@
+import pandas as pd
 import logging
 
 class OpenWeatherAirQualityTransformer:
-    def __init__(self):
+    def __init__(self, zone_ids: pd.DataFrame, api_id: int):
         self.api_name = "Open weather air quality"
+        self.zone_ids = zone_ids
+        self.api_id = api_id
         self.metadata_keys = ["latitude", "longitude", "grid_size", "data", "timestamp"]
         self.data_keys = ["co", "no", "no2", "o3", "so2", "pm2_5", "pm10", "nh3"]
         self.rules = {
-            "latitude": {"type": (float, int), "min": -90, "max": 90},
-            "longitude": {"type": (float, int), "min": -180, "max": 180},
-            "grid_size": {"type": (float, int), "min": 0.009},
-            "timestamp": {"type": (float, int), "min": 0},
+            "recorded_at": {"type": (float, int), "min": 0},
             "co": {"type": (float, int), "min": 0},
             "no": {"type": (float, int), "min": 0},
             "no2": {"type": (float, int), "min": 0},
@@ -19,7 +19,7 @@ class OpenWeatherAirQualityTransformer:
             "pm10": {"type": (float, int), "min": 0},
             "nh3": {"type": (float, int), "min": 0},
         }
-        self.logger = logging.getLogger(f"{self.api_name}_extractor")
+        self.logger = logging.getLogger(f"{self.api_name}_transformer")
 
     def validate_structure(self, raw_data:dict) -> bool:
         for key in self.metadata_keys:
@@ -60,10 +60,8 @@ class OpenWeatherAirQualityTransformer:
 
     def transform(self, raw_data:dict) -> dict:
         transformed_data = {
-            "latitude": raw_data.get("latitude"),
-            "longitude": raw_data.get("longitude"),
-            "grid_size": raw_data.get("grid_size"),
-            "timestamp": raw_data.get("timestamp"),
+            "api_id": self.api_id,
+            "recorded_at": raw_data.get("timestamp"),
             "co": raw_data["data"]["list"][0]["components"].get("co"),
             "no": raw_data["data"]["list"][0]["components"].get("no"),
             "no2": raw_data["data"]["list"][0]["components"].get("no2"),
@@ -76,5 +74,17 @@ class OpenWeatherAirQualityTransformer:
 
         if not self.validate_data(transformed_data):
             return {}
-        transformed_data["timestamp"] = int(transformed_data["timestamp"])
+        
+        latitude = raw_data.get("latitude")
+        longitude = raw_data.get("longitude")
+        grid_size = raw_data.get("grid_size")
+        zone_id = self.zone_ids[
+            (self.zone_ids["latitude"] == latitude) & 
+            (self.zone_ids["longitude"] == longitude) &
+            (self.zone_ids["grid_size"] == grid_size)
+        ]["id"].values[0]
+        zone_id = int(zone_id) 
+        
+        transformed_data["zone_id"] = zone_id
+        transformed_data["recorded_at"] = int(transformed_data["recorded_at"])
         return transformed_data
