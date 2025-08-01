@@ -4,6 +4,8 @@ Pipeline for extracting, transforming, and loading weather and air quality data.
 
 from datetime import datetime, timezone 
 import logging
+from sqlalchemy import create_engine
+import json
 
 from Extract import Extract
 from transform.OpenWeatherAirQualityTransformer import OpenWeatherAirQualityTransformer
@@ -34,6 +36,11 @@ def get_coordinates_mesh(north: float, south: float, east: float, west: float, g
 
     return coordinates
 
+def get_engine(db_user:str, db_password:str, 
+               db_host:str, db_port:int, db_name:str):
+    url = f'postgresql+psycopg2://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}'
+    return create_engine(url)
+
 def get_extractors(*api_data:dict)-> dict:
     extractors = {}
     for api in api_data:
@@ -58,29 +65,23 @@ def get_transformers(*api_data:dict) -> dict:
     transformers = {}
     for api in api_data:
         api_name = api.get("api_name")
-        if api_name == "Open weather air quality":
+        if api_name == "Open Weather Air Quality":
             transformers[api_name] = OpenWeatherAirQualityTransformer()
-        elif api_name == "Open weather weather":
+        elif api_name == "Open Weather Weather":
             transformers[api_name] = OpenWeatherWeatherTransformer()
 
     return transformers
 
-def get_loaders(*api_data:dict, db_user:str, db_password:str, 
-                 db_host:str, db_port:int, db_name:str) -> dict:
+def get_loaders(*api_data:dict, engine) -> dict:
     loaders = {}
     for api in api_data:
         api_name = api.get("api_name")
-        if api_name == "Open weather air quality":
-            loaders[api_name] = OpenWeatherAirQualityLoader(
-                db_user=db_user,
-                db_password=db_password,
-                db_host=db_host,
-                db_port=db_port,
-                db_name=db_name
-            )
-        elif api_name == "Open weather weather":
-            loaders[api_name] = OpenWeatherWeatherLoader(
-            )
+        if api_name == "Open Weather Air Quality":
+            pass
+            #loaders[api_name] = OpenWeatherAirQualityLoader(engine=engine)
+        elif api_name == "Open Weather Weather":
+            pass
+            #loaders[api_name] = OpenWeatherWeatherLoader(engine=engine)
 
     return loaders
 
@@ -142,8 +143,7 @@ def load(transformed_data: dict, loaders: dict) -> None:
 
     for source, data in transformed_data.items():
         loader = loaders.get(source)
-        prepared_data = loader.prepare_data(data) # type: ignore
-        successful_loads, failed_loads = loader.load_data(prepared_data) # type: ignore
+        successful_loads, failed_loads = loader.load_data(data) # type: ignore
         successful += successful_loads
         failed += failed_loads
 
@@ -155,14 +155,14 @@ def main():
     app_args = get_args()
     api_data = [
         {
-            "api_name": "Open weather weather",
+            "api_name": "Open Weather Weather",
             "api_key": f'&appid={app_secrets["OPEN_WEATHER_API_KEY"]}',
             "constant_params": "&units=metric&lang=es",
             "search_params": "lat={lat}&lon={lon}",
             "api_base_url": "https://api.openweathermap.org/data/2.5/weather?",
         },
         {
-            "api_name": "Open weather air quality",
+            "api_name": "Open Weather Air Quality",
             "api_key": f'&appid={app_secrets["OPEN_WEATHER_API_KEY"]}',
             "constant_params": "&lang=es",
             "search_params": "lat={lat}&lon={lon}",
@@ -176,17 +176,24 @@ def main():
         west=app_args.min_lon,
         grid_size=app_args.grid_size
     )
+    engine = get_engine(
+        db_user=app_secrets["DB_USER"],
+        db_password=app_secrets["DB_PASSWORD"],
+        db_host=app_secrets["DB_HOST"],
+        db_port=app_secrets["DB_PORT"],
+        db_name=app_secrets["DB_NAME"]
+    )
     extractors = get_extractors(*api_data)
     transformers = get_transformers(*api_data)
-    loaders = get_loaders(*api_data, db_user=app_secrets["DB_USER"],
-                          db_password=app_secrets["DB_PASSWORD"],
-                          db_host=app_secrets["DB_HOST"],
-                          db_port=app_secrets["DB_PORT"],
-                          db_name=app_secrets["DB_NAME"])
-    
+    loaders = get_loaders(*api_data, engine=engine)
+
     raw_data = extract(data_coordinates, extractors, app_args.grid_size)
+    with open("raw_data.json", "w") as f:
+        json.dump(raw_data, f, indent=4)
     transformed_data = transform(raw_data, transformers)
-    load(transformed_data, loaders)
+    with open("transformed_data.json", "w") as f:
+        json.dump(transformed_data, f, indent=4)
+#    load(transformed_data, loaders)
 
 if __name__ == "__main__":
     main()
