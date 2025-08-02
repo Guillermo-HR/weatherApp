@@ -4,7 +4,10 @@ import logging
 class OpenWeatherWeatherTransformer:
     def __init__(self, zone_ids: pd.DataFrame, api_id: int):
         self.api_name = "Open weather weather"
-        self.zone_ids = zone_ids
+        self.zone_map = {
+            (row['latitude'], row['longitude'], row['grid_size']): row['id']
+            for _, row in zone_ids.iterrows()
+        }
         self.api_id = api_id
         self.metadata_keys = ["latitude", "longitude", "grid_size", "data", "timestamp"]
         self.data_keys = ["temp", "humidity", "pressure"]
@@ -68,12 +71,7 @@ class OpenWeatherWeatherTransformer:
         latitude = raw_data.get("latitude")
         longitude = raw_data.get("longitude")
         grid_size = raw_data.get("grid_size")
-        zone_id = self.zone_ids[
-            (self.zone_ids["latitude"] == latitude) & 
-            (self.zone_ids["longitude"] == longitude) &
-            (self.zone_ids["grid_size"] == grid_size)
-        ]["id"].values[0]
-        zone_id = int(zone_id) 
+        zone_id = self.zone_map.get((latitude, longitude, grid_size))
         
         transformed_data["zone_id"] = zone_id
         transformed_data["recorded_at"] = int(transformed_data["recorded_at"])
