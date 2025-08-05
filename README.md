@@ -19,8 +19,8 @@ A lightweight data engineering pipeline that collects, stores, and visualizes we
 This instructions are for setting up the Weather Data Pipeline on a Fedora system.
 1. **Clone the repository**:
    ```bash
-   git clone https://github.com/yourusername/weather-data-pipeline.git
-   cd weather-data-pipeline
+   git clone https://github.com/Guillermo-HR/weatherApp
+   cd weatherApp
    ```
 2. **Install dependencies**:
     * **Python**:
@@ -69,7 +69,7 @@ This instructions are for setting up the Weather Data Pipeline on a Fedora syste
 
         sudo systemctl status grafana-server
         ```
-
+        
 ## 📄 Configuration
 1. **Environment Variables**:
     Create a `.env` file in the root directory and add the following variables:
