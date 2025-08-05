@@ -30,12 +30,12 @@ def get_coordinates_mesh(max_latitude: float, min_latitude: float, max_longitude
     }
 
     latitude = round(max_latitude, 5)
-    while latitude >= min_latitude:
+    while latitude > min_latitude:
         coordinates["latitude"].append(latitude)
         latitude = round(latitude - grid_size, 5)
 
     longitude = round(max_longitude, 5)
-    while longitude >= min_longitude:
+    while longitude > min_longitude:
         coordinates["longitude"].append(longitude)
         longitude = round(longitude - grid_size, 5)
 
