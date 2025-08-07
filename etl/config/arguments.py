@@ -10,7 +10,8 @@ def get_args() -> argparse.Namespace:
     parser.add_argument("--max_longitude", type = float, default = -99.13, required = True)
     parser.add_argument("--min_longitude", type = float, default = -99.20, required = True)
     parser.add_argument("--grid_size", type = float, default = 0.02, required = True)
-    parser.add_argument("--target_table", type = str, choices = ["weather", "air_quality"], default = "weather", required = True)
+    parser.add_argument("--target_table", type = str, choices = ["weather", "air_quality"]
+                        , default = "weather", required = True)
 
     # Validate arguments
     args = parser.parse_args()
@@ -24,6 +25,9 @@ def get_args() -> argparse.Namespace:
     if args.grid_size <= 0:
         logger.error("grid_size must be a positive number")
         raise ValueError("grid_size must be a positive number")
+    if args.grid_size < 0.00001:
+        logger.error("grid_size must be at least 0.00001")
+        raise ValueError("grid_size must be at least 0.00001")
     if args.target_table is None:
         logger.error("target_table must be specified")
         raise ValueError("target_table must be specified")
