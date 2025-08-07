@@ -18,16 +18,17 @@ def get_secrets(target_table: str) -> Dict:
     
     load_dotenv()
 
-    api_keys = {key: os.getenv(value) for key, value in tables[target_table].items()}
-    if not all(api_keys.values()):
+    required_apis = {key: os.getenv(value) for key, value in tables[target_table].items()}
+    if not all(required_apis.values()):
         raise ValueError("One or more API keys are missing in the environment variables.")
 
-    database = ["DATABASE_USER", "DATABASE_PASSWORD", "DATABASE_HOST", "DATABASE_NAME", "DATABASE_PORT"]
+    database = ["DATABASE_USER", "DATABASE_PASSWORD", "DATABASE_HOST", "DATABASE_NAME", 
+                "DATABASE_PORT"]
     database_keys = {key: os.getenv(key) for key in database}
     if not all(database_keys.values()):
         raise ValueError("One or more database configuration variables are missing in the environment variables.")
 
     return {
-        "api_keys": api_keys,
+        "required_apis": required_apis,
         "database": database_keys
     }
