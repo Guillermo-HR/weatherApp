@@ -1,14 +1,13 @@
 import pandas as pd
 import logging
+from typing import Dict
 
-class OpenWeatherAirQualityTransformer:
-    def __init__(self, zone_ids: pd.DataFrame, api_id: int):
-        self.api_name = "Open weather air quality"
+class AirQualityTransformer:
+    def __init__(self, zone_ids: pd.DataFrame):
         self.zone_map = {
             (row['latitude'], row['longitude'], row['grid_size']): row['id']
             for _, row in zone_ids.iterrows()
         }
-        self.api_id = api_id
         self.metadata_keys = ["latitude", "longitude", "grid_size", "data", "timestamp"]
         self.data_keys = ["co", "no", "no2", "o3", "so2", "pm2_5", "pm10", "nh3"]
         self.rules = {
@@ -22,7 +21,7 @@ class OpenWeatherAirQualityTransformer:
             "pm10": {"type": (float, int), "min": 0},
             "nh3": {"type": (float, int), "min": 0},
         }
-        self.logger = logging.getLogger(f"{self.api_name}_transformer")
+        self.logger = logging.getLogger(f"air_quality_transformer")
 
     def validate_structure(self, raw_data:dict) -> bool:
         for key in self.metadata_keys:
@@ -30,7 +29,7 @@ class OpenWeatherAirQualityTransformer:
                 self.logger.error(f"Missing key in raw data: {key}")
                 return False
             
-        if type(raw_data.get("data")) is not dict:
+        if type(raw_data.get("data")) is not Dict:
             self.logger.error("Invalid data structure.")
             return False
 
@@ -38,18 +37,14 @@ class OpenWeatherAirQualityTransformer:
             if key not in raw_data['data']['list'][0]["components"]:
                 self.logger.error(f"Missing key in raw data: {key}")
                 return False
-            if not isinstance(raw_data['data']['list'][0]["components"][key], (int, float)):
-                self.logger.error("Invalid data type for key %s: %s",
-                                  key,
-                                  raw_data['data']['list'][0]['components'][key])
-                return False
+            
         return True
 
-    def validate_data(self, data: dict) -> bool:
+    def validate_data(self, data: Dict) -> bool:
         for field, rule in self.rules.items():
             value = data.get(field)
             if not isinstance(value, rule["type"]):
-                self.logger.error(f"Invalid type for {field}: {type(value)}")
+                self.logger.error(f"Invalid type for {field}, must be: {rule['type']}")
                 return False
             
             if rule.get("min") is not None and value < rule["min"]:  # type: ignore
@@ -59,11 +54,11 @@ class OpenWeatherAirQualityTransformer:
             if rule.get("max") is not None and value > rule["max"]:  # type: ignore
                 self.logger.error(f"Value out of range for {field}: {value}")
                 return False
+            
         return True
 
-    def transform(self, raw_data:dict) -> dict:
+    def transform(self, raw_data: Dict) -> Dict:
         transformed_data = {
-            "api_id": self.api_id,
             "recorded_at": raw_data.get("timestamp"),
             "co": raw_data["data"]["list"][0]["components"].get("co"),
             "no": raw_data["data"]["list"][0]["components"].get("no"),
@@ -85,4 +80,5 @@ class OpenWeatherAirQualityTransformer:
         
         transformed_data["zone_id"] = zone_id
         transformed_data["recorded_at"] = int(transformed_data["recorded_at"])
+        
         return transformed_data
