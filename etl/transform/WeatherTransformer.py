@@ -1,40 +1,37 @@
 import pandas as pd
 import logging
+from typing import Dict
 
 class WeatherTransformer:
     def __init__(self, zone_ids: pd.DataFrame):
+        self.columns = ["temperature", "humidity", "pressure", "zone_id", "recorded_at"]
         self.zone_map = {
-            (row['latitude'], row['longitude'], row['grid_size']): row['id']
+            (row['latitude'], row['longitude']): row['id']
             for _, row in zone_ids.iterrows()
         }
-        self.metadata_keys = ["latitude", "longitude", "grid_size", "data", "timestamp"]
-        self.data_keys = ["temp", "humidity", "pressure"]
+        self.metadata_keys = ["latitude", "longitude", "timestamp"]
         self.rules = {
-            "recorded_at": {"type": (float, int), "min": 0},
+            "recorded_at": {"type": (int), "min": 0},
+            "zone_id": {"type": (int), "min": 0},
             "temperature": {"type": (float, int), "min": -273.15},
             "humidity": {"type": (float, int), "min": 0, "max": 100},
             "pressure": {"type": (float, int), "min": 0, "max": 108000}
         }
         self.logger = logging.getLogger(f"weather_transformer")
 
-    def validate_structure(self, raw_data:dict) -> bool:
+    def validate_structure(self, record:dict) -> bool:
         for key in self.metadata_keys:
-            if key not in raw_data:
+            if key not in record:
                 self.logger.error(f"Missing key in raw data: {key}")
                 return False
 
-        if type(raw_data.get("data")) is not dict:
+        if "data" not in record or type(record["data"]) is not dict:
             self.logger.error("Invalid data structure.")
             return False
 
-        for key in self.data_keys:
-            if key not in raw_data["data"]["main"]:
-                self.logger.error(f"Missing key in raw data: {key}")
-                return False
-        
         return True
 
-    def validate_data(self, data: dict) -> bool:
+    def validate_data(self, data: Dict) -> bool:
         for field, rule in self.rules.items():
             value = data.get(field)
             if not isinstance(value, rule["type"]):
@@ -51,23 +48,33 @@ class WeatherTransformer:
             
         return True
 
-    def transform(self, raw_data:dict) -> dict:
+    def get_zone(self, latitude: float, longitude: float) -> int:
+        if (latitude, longitude) in self.zone_map:
+            zone_id = self.zone_map[(latitude, longitude)]
+            return int(zone_id)
+        else:
+            self.logger.error(f"Zone not found for coordinates: ({latitude}, {longitude})")
+            return -1
+
+    def transform(self, record: Dict) -> Dict:
+        if not self.validate_structure(record):
+            return {}
+
+        latitude = record["latitude"]
+        longitude = record["longitude"]
+        zone_id = self.get_zone(latitude, longitude)
+        if zone_id == -1:
+            return {}
+
         transformed_data = {
-            "recorded_at": raw_data.get("timestamp"),
-            "temperature": raw_data['data']['main'].get("temp"),
-            "humidity": raw_data['data']['main'].get("humidity"),
-            "pressure": raw_data['data']['main'].get("pressure")
+            "recorded_at": int(record["timestamp"]),
+            "zone_id": zone_id,
+            "temperature": record["data"]["OPEN_WEATHER_WEATHER"]["main"].get("temp"),
+            "humidity": record["data"]["OPEN_WEATHER_WEATHER"]["main"].get("humidity"),
+            "pressure": record["data"]["OPEN_WEATHER_WEATHER"]["main"].get("pressure")
         }
 
         if not self.validate_data(transformed_data):
             return {}
-        
-        latitude = raw_data.get("latitude")
-        longitude = raw_data.get("longitude")
-        grid_size = raw_data.get("grid_size")
-        zone_id = self.zone_map.get((latitude, longitude, grid_size))
-        
-        transformed_data["zone_id"] = zone_id
-        transformed_data["recorded_at"] = int(transformed_data["recorded_at"])
         
         return transformed_data
