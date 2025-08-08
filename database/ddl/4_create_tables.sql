@@ -2,10 +2,10 @@ create table weatherapp_schema.zone (
     id serial primary key,
     latitude float not null,
     longitude float not null,
-    grid_size float not null,
 
-    constraint zone_grid_size_check check (grid_size > 0),
-    constraint zone_latitude_longitude_grid_size_uq unique (latitude, longitude, grid_size)
+    constraint zone_latitude_longitude_uq unique (latitude, longitude),
+    constraint zone_latitude_check check (latitude >= -90 and latitude <= 90),
+    constraint zone_longitude_check check (longitude >= -180 and longitude <= 180)
 );
 
 create table weatherapp_schema.weather (
