@@ -54,17 +54,16 @@ def get_coordinates_mesh(max_latitude: float, min_latitude: float, max_longitude
 
     return coordinates
 
-def get_zone_id(data_coordinates: Dict, grid_size: float, engine) -> pd.DataFrame:
+def get_zone_id(data_coordinates: Dict, engine) -> pd.DataFrame:
     latitude = [lat for lat in data_coordinates["latitude"]
                 for lon in range(len(data_coordinates["longitude"]))]
     longitude = data_coordinates["longitude"] * len(data_coordinates["latitude"])
 
     query = f"""
-        SELECT id, latitude, longitude, grid_size
+        SELECT id, latitude, longitude
         FROM zone
         WHERE latitude IN ({','.join(map(str, latitude))})
-        AND longitude IN ({','.join(map(str, longitude))})
-        AND grid_size = {grid_size};
+        AND longitude IN ({','.join(map(str, longitude))});
     """
 
     return pd.read_sql(query, engine)
@@ -73,12 +72,14 @@ def get_extractors(required_apis: Dict) -> Dict:
     api_data = {
         "OPEN_WEATHER_WEATHER": {
             "api_name": "Open Weather Weather",
+            "api_key": f'&appid={{api_key}}',
             "constant_params": "&units=metric&lang=es",
             "search_params": "lat={latitude}&lon={longitude}",
             "api_base_url": "https://api.openweathermap.org/data/2.5/weather?"
         },
         "OPEN_WEATHER_AIR_QUALITY": {
             "api_name": "Open Weather Air Quality",
+            "api_key": f'&appid={{api_key}}',
             "constant_params": "&lang=es",
             "search_params": "lat={latitude}&lon={longitude}",
             "api_base_url": "http://api.openweathermap.org/data/2.5/air_pollution?"
@@ -92,7 +93,7 @@ def get_extractors(required_apis: Dict) -> Dict:
             raise ValueError(f"API '{api_name}' is not supported.")
         extractors[api_name] = Extract(
             api_name = api_data[api_name]["api_name"],
-            api_key = api_key,
+            api_key = api_data[api_name]["api_key"].format(api_key = api_key),
             constant_params = api_data[api_name]["constant_params"],
             search_params = api_data[api_name]["search_params"],
             api_base_url = api_data[api_name]["api_base_url"]
@@ -111,35 +112,28 @@ def get_transformer(zone_ids: pd.DataFrame, target_table: str):
     elif target_table == "air_quality":
         return AirQualityTransformer(zone_ids)
 
-def get_api_id(engine) -> pd.DataFrame:
-    query = "SELECT id, name FROM api;"
-
-    return pd.read_sql(query, engine)
-
-def add_missing_coordinates(data_coordinates: Dict, grid_size: float, engine) -> None:
+def add_missing_coordinates(data_coordinates: Dict, engine) -> None:
     latitude = [lat for lat in data_coordinates["latitude"] 
                      for lon in range(len(data_coordinates["longitude"]))]
     longitude = data_coordinates["longitude"] * len(data_coordinates["latitude"])
     
     candidate_coordinates = pd.DataFrame({
         "latitude": latitude,
-        "longitude": longitude,
-        "grid_size": [grid_size] * len(latitude)
+        "longitude": longitude
     })
 
     lat_str = ','.join(map(str, latitude))
     lon_str = ','.join(map(str, longitude))
     query = f"""
-        SELECT latitude, longitude, grid_size
+        SELECT latitude, longitude
         FROM zone
         WHERE latitude IN ({lat_str})
-        AND longitude IN ({lon_str})
-        AND grid_size = {grid_size};
+        AND longitude IN ({lon_str});
     """
     existing_coordinates = pd.read_sql(query, engine)
 
     merge_coordinates = candidate_coordinates.merge(existing_coordinates, 
-                                                    on = ["latitude", "longitude", "grid_size"],
+                                                    on = ["latitude", "longitude"],
                                                     how = "left", indicator = True)
     missing_coordinates = merge_coordinates[
         merge_coordinates["_merge"] == "left_only"
@@ -148,91 +142,74 @@ def add_missing_coordinates(data_coordinates: Dict, grid_size: float, engine) ->
     if not missing_coordinates.empty:
         missing_coordinates.to_sql("zone", engine, if_exists = "append", index = False)
 
-def unify_data(transformed_data: dict) -> dict:
+def unify_data(transformed_data: list, columns: list) -> Dict:
     unified_data = {}
-    for source, data in transformed_data.items():
-        if not data:
+    unified_data = {key: [] for key in columns}
+    
+    for record in transformed_data:
+        if not all(key in record for key in columns):
+            logger.error("Transformed data record is missing required keys.")
             continue
-        unified_data[source] = {}
-        for record in data:
-            for key, value in record.items():
-                if key not in unified_data[source]:
-                    unified_data[source][key] = []
-                unified_data[source][key].append(value)
+        for key in columns:
+            unified_data[key].append(record[key])
+    
     return unified_data
 
-def extract(data_coordinates:dict, extractors: dict, grid_size: float)-> dict:
-    data = {}
+def extract(data_coordinates: Dict, extractors: Dict, grid_size: float) -> list:
+    raw_data = []
     successful = 0
     failed = 0
 
-    for extractor_name in extractors:
-        data[extractor_name] = []
-
     for latitude in data_coordinates["latitude"]:
         for longitude in data_coordinates["longitude"]:
+            timestamp = datetime.now(timezone.utc).timestamp()
+            record = {}
+            record["latitude"] = latitude
+            record["longitude"] = longitude
+            record["grid_size"] = grid_size
+            record["timestamp"] = timestamp
+            record["data"] = {}
             for extractor_name, extractor in extractors.items():
-                timestamp = datetime.now(timezone.utc).timestamp()
                 response = extractor.get_data(latitude, longitude)
                 if response["status"] == "failed":
                     failed += 1
                     continue
-                data[extractor_name].append({
-                    "latitude": latitude,
-                    "longitude": longitude,
-                    "grid_size": grid_size,
-                    "data": response.get("data"),
-                    "timestamp": timestamp
-                })
+                record["data"][extractor_name] = response["data"]
                 successful += 1
+            if len(record["data"]) != len(extractors):
+               continue
+            raw_data.append(record)
 
     logging.info(f"Extraction completed: {successful} success, {failed} failed")
-    return data
+    return raw_data
 
-def transform(raw_data: dict, transformers: dict) -> dict:
-    transformed_data = {}
+def transform(raw_data: list, transformer) -> Dict:
+    transformed_data = []
     successful = 0
     failed = 0
 
-    for transformer_name in transformers:
-        transformed_data[transformer_name] = []
+    for record in raw_data:
+        transformed_record = transformer.transform(record)
+        if len(transformed_record) == 0:
+            failed += 1
+            continue
+        transformed_data.append(transformed_record)
+        successful += 1
 
-    for source, data in raw_data.items():
-        transformer = transformers.get(source)
-        for record in data:
-            if not transformer.validate_structure(record): # type: ignore
-                failed += 1
-                continue
-            transformed_record = transformer.transform(record) # type: ignore
-            if len(transformed_record) == 0:
-                failed += 1
-                continue
-            transformed_data[source].append(transformed_record)
-            successful += 1
-
-    unified_data = unify_data(transformed_data)
+    unified_data = unify_data(transformed_data, transformer.columns)
 
     logging.info(f"Transformation completed: {successful} success, {failed} failed")
     return unified_data
 
-def load(transformed_data: dict, loader: Load) -> None:
-    table_names = {
-        "Open Weather Weather": "weather",
-        "Open Weather Air Quality": "air_quality"
-    }
-    successful = 0
-    failed = 0
+def load(transformed_data: dict, table: str, loader: Load) -> None:
+    table_names = ["weather", "air_quality"]
+    if table not in table_names:
+        logger.error(f"Target table '{table}' is not supported for loading.")
+        return
 
-    for source, data in transformed_data.items():
-        table = table_names.get(source)
-        if not table:
-            logging.warning(f"Unknown source: {source}")
-            continue
-        successful_loads, failed_loads = loader.load_data(data, table)
-        successful += successful_loads
-        failed += failed_loads
+    successful_loads, failed_loads = loader.load_data(transformed_data, table)
 
-    logging.info(f"Loading completed: {successful} success, {failed} failed")
+    logging.info(f"Loading completed: {successful_loads} success, {failed_loads} failed")
 
 def main():
     app_args = get_args()
@@ -256,16 +233,19 @@ def main():
         grid_size = app_args.grid_size
     )
     
-    add_missing_coordinates(data_coordinates, app_args.grid_size, engine)
-    zone_ids = get_zone_id(data_coordinates, app_args.grid_size, engine)
+    add_missing_coordinates(data_coordinates, engine)
+    zone_ids = get_zone_id(data_coordinates, engine)
 
     extractors = get_extractors(app_secrets["required_apis"])
-    transformer = get_transformer(zone_ids, app_args.target_table) #! last change
+    transformer = get_transformer(zone_ids, app_args.target_table)
     loader = Load(engine)
 
     raw_data = extract(data_coordinates, extractors, app_args.grid_size)
-    transformed_data = transform(raw_data, transformers)
-    load(transformed_data, loader)
+    if not raw_data:
+        logger.error("No data extracted. Exiting.")
+        return
+    transformed_data = transform(raw_data, transformer)
+    load(transformed_data, app_args.target_table, loader)
 
 if __name__ == "__main__":
     main()
