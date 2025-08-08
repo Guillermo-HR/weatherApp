@@ -15,7 +15,6 @@ class Load:
             df['recorded_at'] = pd.to_datetime(df['recorded_at'], unit='s', utc=True)
             df.to_sql(table, self.engine, if_exists='append', index=False)
             successful = len(df)
-            failed = 0
         except Exception as e:
             logging.error(f"Failed to load data into {table}: {e}")
             failed = len(data)
