@@ -102,14 +102,6 @@ This instructions are for setting up the Weather Data Pipeline on a Fedora syste
     psql -h localhost -p 5432 -U weatherapp_admin_1 -d weatherapp_database -f main_pt2.sql
     ```
 3. **Cron Job**:
-    Create a directory for the cron job logs:
-    ```bash
-    mkdir -p <Project route>/conjob_logs
-    ```
-    Create a file for the cron job logs:
-    ```bash
-    touch <Project route>/conjob_logs/cronjob_weatherapp_etl.log
-    ```
     Modify the file /etl/cronjob_weatherapp_etl.sh to set the correct path for the proyect.
     Modify the permissions of the script:
     ```bash
