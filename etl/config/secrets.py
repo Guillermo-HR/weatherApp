@@ -3,14 +3,32 @@ import os
 from typing import Dict
 
 
-def get_secrets()->Dict:
+def get_secrets(target_table: str) -> Dict:
+    tables = {
+        "weather": {
+            "OPEN_WEATHER_WEATHER": "OPEN_WEATHER_API_KEY"
+        },
+        "air_quality": {
+            "OPEN_WEATHER_AIR_QUALITY": "OPEN_WEATHER_API_KEY"
+        }
+    }
+
+    if target_table not in tables:
+        raise ValueError(f"target_table '{target_table}' is not supported.")
+    
     load_dotenv()
 
+    required_apis = {key: os.getenv(value) for key, value in tables[target_table].items()}
+    if not all(required_apis.values()):
+        raise ValueError("One or more API keys are missing in the environment variables.")
+
+    database = ["DATABASE_USER", "DATABASE_PASSWORD", "DATABASE_HOST", "DATABASE_NAME", 
+                "DATABASE_PORT"]
+    database_keys = {key: os.getenv(key) for key in database}
+    if not all(database_keys.values()):
+        raise ValueError("One or more database configuration variables are missing in the environment variables.")
+
     return {
-        "OPEN_WEATHER_API_KEY": os.getenv("OPEN_WEATHER_API_KEY"),
-        "DB_USER": os.getenv("DATABASE_USER"),
-        "DB_PASSWORD": os.getenv("DATABASE_PASSWORD"),
-        "DB_HOST": os.getenv("DATABASE_HOST"),
-        "DB_NAME": os.getenv("DATABASE_NAME"),
-        "DB_PORT": int(os.getenv("DATABASE_PORT", 5432))
+        "required_apis": required_apis,
+        "database": database_keys
     }
