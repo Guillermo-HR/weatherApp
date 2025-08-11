@@ -3,7 +3,7 @@ import logging
 from typing import Dict
 
 class WeatherTransformer:
-    def __init__(self, zone_ids: pd.DataFrame):
+    def __init__(self, logger: logging.Logger, zone_ids: pd.DataFrame):
         self.columns = ["temperature", "humidity", "pressure", "zone_id", "recorded_at"]
         self.zone_map = {
             (row['latitude'], row['longitude']): row['id']
@@ -17,7 +17,7 @@ class WeatherTransformer:
             "humidity": {"type": (float, int), "min": 0, "max": 100},
             "pressure": {"type": (float, int), "min": 0, "max": 108000}
         }
-        self.logger = logging.getLogger(f"weather_transformer")
+        self.logger = logger
 
     def validate_structure(self, record:dict) -> bool:
         for key in self.metadata_keys:
