@@ -1,9 +1,7 @@
 import argparse
 import logging
 
-logger = logging.getLogger(__name__)
-
-def get_args() -> argparse.Namespace:
+def get_args(logger: logging.Logger) -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--max_latitude", type = float, default = 19.50, required = True)
     parser.add_argument("--min_latitude", type = float, default = 19.29, required = True)
@@ -17,27 +15,26 @@ def get_args() -> argparse.Namespace:
     args = parser.parse_args()
 
     if args.max_latitude <= args.min_latitude:
-        logger.error("max_latitude must be greater than min_latitude")
-        raise ValueError("max_latitude must be greater than min_latitude")
+        logger.critical("max_latitude must be greater than min_latitude")
+        return None # type: ignore
     if args.max_longitude <= args.min_longitude:
-        logger.error("max_longitude must be greater than min_longitude")
-        raise ValueError("max_longitude must be greater than min_longitude")
+        logger.critical("max_longitude must be greater than min_longitude")
+        return None # type: ignore
     if args.grid_size <= 0:
-        logger.error("grid_size must be a positive number")
-        raise ValueError("grid_size must be a positive number")
+        logger.critical("grid_size must be a positive number")
+        return None # type: ignore
     if args.grid_size < 0.00001:
-        logger.error("grid_size must be at least 0.00001")
-        raise ValueError("grid_size must be at least 0.00001")
+        logger.critical("grid_size must be at least 0.00001")
+        return None # type: ignore
     if args.target_table is None:
-        logger.error("target_table must be specified")
-        raise ValueError("target_table must be specified")
+        logger.critical("target_table must be specified")
+        return None # type: ignore
     if args.max_latitude > 90 or args.min_latitude < -90:
-        logger.error("Latitude values must be between -90 and 90")
-        raise ValueError("Latitude values must be between -90 and 90")
+        logger.critical("Latitude values must be between -90 and 90")
+        return None # type: ignore
     if args.max_longitude > 180 or args.min_longitude < -180:
-        logger.error("Longitude values must be between -180 and 180")
-        raise ValueError("Longitude values must be between -180 and 180")
+        logger.critical("Longitude values must be between -180 and 180")
+        return None # type: ignore
 
+    logger.info(f"Arguments parsed successfully")
     return args
-
-get_args()

@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 import logging
 from sqlalchemy import create_engine, text
 import pandas as pd
+from typing import Dict
 
 from Extract import Extract
 from transform.AirQualityTransformer import AirQualityTransformer
@@ -13,10 +14,7 @@ from transform.WeatherTransformer import WeatherTransformer
 from Load import Load
 from config.secrets import get_secrets
 from config.arguments import get_args
-from typing import Dict
-
-logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
+from config.logger import setup_logger
 
 def get_engine(database_user: str, database_password: str, 
                database_host: str, database_port: int, database_name: str):
@@ -30,9 +28,10 @@ def get_engine(database_user: str, database_password: str,
         with engine.connect() as conn:
             conn.execute(text("SELECT 1;"))
     except Exception as e:
-        logger.error(f"Failed to connect to the database: {e}")
+        logger.critical(f"Failed to connect to the database: {e}")
         return None
 
+    logger.info("Database connection established successfully.")
     return engine
 
 def get_coordinates_mesh(max_latitude: float, min_latitude: float, max_longitude: float, 
@@ -66,7 +65,12 @@ def get_zone_id(data_coordinates: Dict, engine) -> pd.DataFrame:
         AND longitude IN ({','.join(map(str, longitude))});
     """
 
-    return pd.read_sql(query, engine)
+    try:
+        zone_ids = pd.read_sql(query, engine)
+    except Exception as e:
+        logger.critical(f"Failed to retrieve zone IDs from the database: {e}")
+        return None # type: ignore
+    return zone_ids
 
 def get_extractors(required_apis: Dict) -> Dict:
     api_data = {
@@ -89,9 +93,10 @@ def get_extractors(required_apis: Dict) -> Dict:
     extractors = {}
     for api_name, api_key in required_apis.items():
         if api_name not in api_data:
-            logger.error(f"API '{api_name}' is not supported.")
-            raise ValueError(f"API '{api_name}' is not supported.")
+            logger.critical(f"API '{api_name}' is not supported.")
+            return {}
         extractors[api_name] = Extract(
+            logger = logger,
             api_name = api_data[api_name]["api_name"],
             api_key = api_data[api_name]["api_key"].format(api_key = api_key),
             constant_params = api_data[api_name]["constant_params"],
@@ -104,15 +109,15 @@ def get_extractors(required_apis: Dict) -> Dict:
 def get_transformer(zone_ids: pd.DataFrame, target_table: str):
     transformers = ["weather", "air_quality"]
     if target_table not in transformers:
-        logger.error(f"Target table '{target_table}' is not supported.")
-        raise ValueError(f"Target table '{target_table}' is not supported.")
+        logger.critical(f"Target table '{target_table}' is not supported.")
+        return None
     
     if target_table == "weather":
-        return WeatherTransformer(zone_ids)
+        return WeatherTransformer(logger, zone_ids)
     elif target_table == "air_quality":
-        return AirQualityTransformer(zone_ids)
+        return AirQualityTransformer(logger, zone_ids)
 
-def add_missing_coordinates(data_coordinates: Dict, engine) -> None:
+def add_missing_coordinates(data_coordinates: Dict, engine) -> int:
     latitude = [lat for lat in data_coordinates["latitude"] 
                      for lon in range(len(data_coordinates["longitude"]))]
     longitude = data_coordinates["longitude"] * len(data_coordinates["latitude"])
@@ -130,7 +135,11 @@ def add_missing_coordinates(data_coordinates: Dict, engine) -> None:
         WHERE latitude IN ({lat_str})
         AND longitude IN ({lon_str});
     """
-    existing_coordinates = pd.read_sql(query, engine)
+    try:
+        existing_coordinates = pd.read_sql(query, engine)
+    except Exception as e:
+        logger.critical(f"Failed to retrieve existing coordinates from the database: {e}")
+        return -1
 
     merge_coordinates = candidate_coordinates.merge(existing_coordinates, 
                                                     on = ["latitude", "longitude"],
@@ -140,7 +149,12 @@ def add_missing_coordinates(data_coordinates: Dict, engine) -> None:
         ].drop(columns = ["_merge"])
 
     if not missing_coordinates.empty:
-        missing_coordinates.to_sql("zone", engine, if_exists = "append", index = False)
+        try:
+            missing_coordinates.to_sql("zone", engine, if_exists = "append", index = False)
+        except Exception as e:
+            logger.critical(f"Failed to insert missing coordinates into the database: {e}")
+            return -1
+    return 0
 
 def unify_data(transformed_data: list, columns: list) -> Dict:
     unified_data = {}
@@ -180,7 +194,7 @@ def extract(data_coordinates: Dict, extractors: Dict, grid_size: float) -> list:
                continue
             raw_data.append(record)
 
-    logging.info(f"Extraction completed: {successful} success, {failed} failed")
+    logger.info(f"Extraction completed: {successful} success, {failed} failed")
     return raw_data
 
 def transform(raw_data: list, transformer) -> Dict:
@@ -198,22 +212,30 @@ def transform(raw_data: list, transformer) -> Dict:
 
     unified_data = unify_data(transformed_data, transformer.columns)
 
-    logging.info(f"Transformation completed: {successful} success, {failed} failed")
+    logger.info(f"Transformation completed: {successful} success, {failed} failed")
     return unified_data
 
-def load(transformed_data: dict, table: str, loader: Load) -> None:
+def load(transformed_data: dict, table: str, loader: Load) -> int:
     table_names = ["weather", "air_quality"]
     if table not in table_names:
-        logger.error(f"Target table '{table}' is not supported for loading.")
-        return
+        logger.critical(f"Target table '{table}' is not supported for loading.")
+        return -1
 
     successful_loads, failed_loads = loader.load_data(transformed_data, table)
 
-    logging.info(f"Loading completed: {successful_loads} success, {failed_loads} failed")
+    logger.info(f"Loading completed: {successful_loads} success, {failed_loads} failed")
+    return 0 if failed_loads == 0 else -1
 
 def main():
-    app_args = get_args()
-    app_secrets = get_secrets(app_args.target_table)
+    logger.info("Starting ETL pipeline")
+    app_args = get_args(logger)
+    if app_args is None:
+        logger.info("Argument parsing failed. Exiting.")
+        return
+    app_secrets = get_secrets(app_args.target_table, logger)
+    if app_secrets is None:
+        logger.info("Failed to retrieve secrets. Exiting.")
+        return
     engine = get_engine(
         database_user = app_secrets["database"]["DATABASE_USER"],
         database_password = app_secrets["database"]["DATABASE_PASSWORD"],
@@ -222,7 +244,7 @@ def main():
         database_name = app_secrets["database"]["DATABASE_NAME"]
     )
     if engine is None:
-        logger.error("Exiting due to database connection failure.")
+        logger.info("Database connection failed. Exiting.")
         return
     
     data_coordinates = get_coordinates_mesh(
@@ -232,20 +254,43 @@ def main():
         min_longitude = app_args.min_longitude,
         grid_size = app_args.grid_size
     )
-    
-    add_missing_coordinates(data_coordinates, engine)
+
+    if add_missing_coordinates(data_coordinates, engine) == -1:
+        logger.info("Failed to add missing coordinates. Exiting.")
+        return
+
     zone_ids = get_zone_id(data_coordinates, engine)
+    if zone_ids is None:
+        logger.info("Failed to retrieve zone IDs. Exiting.")
+        return
+    if zone_ids.empty:
+        logger.info("No zone IDs found. Exiting.")
+        return
 
     extractors = get_extractors(app_secrets["required_apis"])
+    if not extractors:
+        logger.info("No extractors available. Exiting.")
+        return
     transformer = get_transformer(zone_ids, app_args.target_table)
-    loader = Load(engine)
+    if transformer is None:
+        logger.info("No transformer available for the target table. Exiting.")
+        return
+    loader = Load(logger, engine)
 
     raw_data = extract(data_coordinates, extractors, app_args.grid_size)
     if not raw_data:
-        logger.error("No data extracted. Exiting.")
+        logger.info("No data extracted. Exiting.")
         return
     transformed_data = transform(raw_data, transformer)
-    load(transformed_data, app_args.target_table, loader)
+    if not transformed_data:
+        logger.info("No data transformed. Exiting.")
+        return
+    result = load(transformed_data, app_args.target_table, loader)
+    if result == -1:
+        logger.info("Loading data failed. Exiting.")
+        return
 
 if __name__ == "__main__":
+    global logger
+    logger = setup_logger()
     main()
