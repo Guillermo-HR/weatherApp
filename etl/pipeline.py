@@ -93,9 +93,10 @@ def get_extractors(required_apis: Dict) -> Dict:
     extractors = {}
     for api_name, api_key in required_apis.items():
         if api_name not in api_data:
-            logger.error(f"API '{api_name}' is not supported.")
-            raise ValueError(f"API '{api_name}' is not supported.")
+            logger.critical(f"API '{api_name}' is not supported.")
+            return {}
         extractors[api_name] = Extract(
+            logger = logger,
             api_name = api_data[api_name]["api_name"],
             api_key = api_data[api_name]["api_key"].format(api_key = api_key),
             constant_params = api_data[api_name]["constant_params"],
@@ -108,13 +109,13 @@ def get_extractors(required_apis: Dict) -> Dict:
 def get_transformer(zone_ids: pd.DataFrame, target_table: str):
     transformers = ["weather", "air_quality"]
     if target_table not in transformers:
-        logger.error(f"Target table '{target_table}' is not supported.")
-        raise ValueError(f"Target table '{target_table}' is not supported.")
+        logger.critical(f"Target table '{target_table}' is not supported.")
+        return None
     
     if target_table == "weather":
-        return WeatherTransformer(zone_ids)
+        return WeatherTransformer(logger, zone_ids)
     elif target_table == "air_quality":
-        return AirQualityTransformer(zone_ids)
+        return AirQualityTransformer(logger, zone_ids)
 
 def add_missing_coordinates(data_coordinates: Dict, engine) -> int:
     latitude = [lat for lat in data_coordinates["latitude"] 
@@ -193,7 +194,7 @@ def extract(data_coordinates: Dict, extractors: Dict, grid_size: float) -> list:
                continue
             raw_data.append(record)
 
-    logging.info(f"Extraction completed: {successful} success, {failed} failed")
+    logger.info(f"Extraction completed: {successful} success, {failed} failed")
     return raw_data
 
 def transform(raw_data: list, transformer) -> Dict:
@@ -211,18 +212,19 @@ def transform(raw_data: list, transformer) -> Dict:
 
     unified_data = unify_data(transformed_data, transformer.columns)
 
-    logging.info(f"Transformation completed: {successful} success, {failed} failed")
+    logger.info(f"Transformation completed: {successful} success, {failed} failed")
     return unified_data
 
-def load(transformed_data: dict, table: str, loader: Load) -> None:
+def load(transformed_data: dict, table: str, loader: Load) -> int:
     table_names = ["weather", "air_quality"]
     if table not in table_names:
-        logger.error(f"Target table '{table}' is not supported for loading.")
-        return
+        logger.critical(f"Target table '{table}' is not supported for loading.")
+        return -1
 
     successful_loads, failed_loads = loader.load_data(transformed_data, table)
 
-    logging.info(f"Loading completed: {successful_loads} success, {failed_loads} failed")
+    logger.info(f"Loading completed: {successful_loads} success, {failed_loads} failed")
+    return 0 if failed_loads == 0 else -1
 
 def main():
     logger.info("Starting ETL pipeline")
@@ -266,15 +268,27 @@ def main():
         return
 
     extractors = get_extractors(app_secrets["required_apis"])
+    if not extractors:
+        logger.info("No extractors available. Exiting.")
+        return
     transformer = get_transformer(zone_ids, app_args.target_table)
-    loader = Load(engine)
+    if transformer is None:
+        logger.info("No transformer available for the target table. Exiting.")
+        return
+    loader = Load(logger, engine)
 
     raw_data = extract(data_coordinates, extractors, app_args.grid_size)
     if not raw_data:
-        logger.error("No data extracted. Exiting.")
+        logger.info("No data extracted. Exiting.")
         return
     transformed_data = transform(raw_data, transformer)
-    load(transformed_data, app_args.target_table, loader)
+    if not transformed_data:
+        logger.info("No data transformed. Exiting.")
+        return
+    result = load(transformed_data, app_args.target_table, loader)
+    if result == -1:
+        logger.info("Loading data failed. Exiting.")
+        return
 
 if __name__ == "__main__":
     global logger
