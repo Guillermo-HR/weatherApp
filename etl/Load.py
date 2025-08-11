@@ -2,11 +2,11 @@ import pandas as pd
 import logging
 
 class Load:
-    def __init__(self, engine):
+    def __init__(self, logger: logging.Logger, engine):
         self.engine = engine
-        self.logger = logging.getLogger(f"load_extractor")
+        self.logger = logger
 
-    def load_data(self, data:dict, table:str) -> tuple[int, int]:
+    def load_data(self, data: dict, table: str) -> tuple[int, int]:
         successful = 0
         failed = 0
 
@@ -16,7 +16,7 @@ class Load:
             df.to_sql(table, self.engine, if_exists='append', index=False)
             successful = len(df)
         except Exception as e:
-            logging.error(f"Failed to load data into {table}: {e}")
+            self.logger.critical(f"Failed to load data into {table}: {e}")
             failed = len(data)
         
         return successful, failed
