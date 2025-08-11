@@ -3,7 +3,7 @@ import logging
 from typing import Dict
 
 class AirQualityTransformer:
-    def __init__(self, zone_ids: pd.DataFrame):
+    def __init__(self, logger: logging.Logger, zone_ids: pd.DataFrame):
         self.columns = ["co", "no", "no2", "o3", "so2", "pm2_5", "pm10", "nh3", 
                         "zone_id", "recorded_at"]
         self.zone_map = {
@@ -23,7 +23,7 @@ class AirQualityTransformer:
             "pm10": {"type": (float, int), "min": 0},
             "nh3": {"type": (float, int), "min": 0},
         }
-        self.logger = logging.getLogger(f"air_quality_transformer")
+        self.logger = logger
 
     def validate_structure(self, record:dict) -> bool:
         for key in self.metadata_keys:
