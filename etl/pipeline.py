@@ -3,7 +3,6 @@ Pipeline for extracting, transforming, and loading weather and air quality data.
 """
 
 from datetime import datetime, timezone 
-import logging
 from sqlalchemy import create_engine, text
 import pandas as pd
 from typing import Dict
