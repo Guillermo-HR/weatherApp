@@ -5,7 +5,10 @@ Pipeline for extracting, transforming, and loading weather and air quality data.
 from datetime import datetime, timezone 
 from sqlalchemy import create_engine, text
 import pandas as pd
+import numpy as np
 from typing import Dict
+import concurrent.futures
+import threading
 
 from Extract import Extract
 from transform.AirQualityTransformer import AirQualityTransformer
@@ -14,6 +17,9 @@ from Load import Load
 from config.secrets import get_secrets
 from config.arguments import get_args
 from config.logger import setup_logger
+
+MAX_WORKERS = 5
+MAX_COORDINATES_PER_THREAD = 200
 
 def get_engine(database_user: str, database_password: str, 
                database_host: str, database_port: int, database_name: str):
@@ -34,28 +40,18 @@ def get_engine(database_user: str, database_password: str,
     return engine
 
 def get_coordinates_mesh(max_latitude: float, min_latitude: float, max_longitude: float, 
-                         min_longitude: float, grid_size: float) -> Dict:
-    coordinates = {
-        "latitude": [],
-        "longitude": []
-    }
+                         min_longitude: float, grid_size: float) -> list:
+    coordinates_list = []
+    for lat in np.arange(min_latitude, max_latitude + grid_size, grid_size):
+        for lon in np.arange(min_longitude, max_longitude + grid_size, grid_size):
+            lat_rounded = round(float(lat), 5)
+            lon_rounded = round(float(lon), 5)
+            coordinates_list.append((lat_rounded, lon_rounded))
+    return coordinates_list
 
-    latitude = round(max_latitude, 5)
-    while latitude > min_latitude:
-        coordinates["latitude"].append(latitude)
-        latitude = round(latitude - grid_size, 5)
-
-    longitude = round(max_longitude, 5)
-    while longitude > min_longitude:
-        coordinates["longitude"].append(longitude)
-        longitude = round(longitude - grid_size, 5)
-
-    return coordinates
-
-def get_zone_id(data_coordinates: Dict, engine) -> pd.DataFrame:
-    latitude = [lat for lat in data_coordinates["latitude"]
-                for lon in range(len(data_coordinates["longitude"]))]
-    longitude = data_coordinates["longitude"] * len(data_coordinates["latitude"])
+def get_zone_id(data_coordinates: list, engine) -> pd.DataFrame:
+    latitude = [coordinate[0] for coordinate in data_coordinates]
+    longitude = [coordinate[1] for coordinate in data_coordinates]
 
     query = f"""
         SELECT id, latitude, longitude
@@ -116,10 +112,16 @@ def get_transformer(zone_ids: pd.DataFrame, target_table: str):
     elif target_table == "air_quality":
         return AirQualityTransformer(logger, zone_ids)
 
-def add_missing_coordinates(data_coordinates: Dict, engine) -> int:
-    latitude = [lat for lat in data_coordinates["latitude"] 
-                     for lon in range(len(data_coordinates["longitude"]))]
-    longitude = data_coordinates["longitude"] * len(data_coordinates["latitude"])
+def split_data_coordinates(data_coordinates: list) -> list:
+    if len(data_coordinates) <= (MAX_COORDINATES_PER_THREAD * MAX_WORKERS):
+        chunk_size = len(data_coordinates) // MAX_WORKERS + 1
+    else:
+        chunk_size = MAX_COORDINATES_PER_THREAD
+    return [data_coordinates[i:i + chunk_size] for i in range(0, len(data_coordinates), chunk_size)]
+
+def add_missing_coordinates(data_coordinates: list, engine) -> int:
+    latitude = [coordinate[0] for coordinate in data_coordinates]
+    longitude = [coordinate[1] for coordinate in data_coordinates]
     
     candidate_coordinates = pd.DataFrame({
         "latitude": latitude,
@@ -168,30 +170,29 @@ def unify_data(transformed_data: list, columns: list) -> Dict:
     
     return unified_data
 
-def extract(data_coordinates: Dict, extractors: Dict, grid_size: float) -> list:
+def extract(data_coordinates: list, extractors: Dict, grid_size: float) -> list:
     raw_data = []
     successful = 0
     failed = 0
 
-    for latitude in data_coordinates["latitude"]:
-        for longitude in data_coordinates["longitude"]:
-            timestamp = datetime.now(timezone.utc).timestamp()
-            record = {}
-            record["latitude"] = latitude
-            record["longitude"] = longitude
-            record["grid_size"] = grid_size
-            record["timestamp"] = timestamp
-            record["data"] = {}
-            for extractor_name, extractor in extractors.items():
-                response = extractor.get_data(latitude, longitude)
-                if response["status"] == "failed":
-                    failed += 1
-                    continue
-                record["data"][extractor_name] = response["data"]
-                successful += 1
-            if len(record["data"]) != len(extractors):
-               continue
-            raw_data.append(record)
+    for latitude, longitude in data_coordinates:
+        timestamp = datetime.now(timezone.utc).timestamp()
+        record = {}
+        record["latitude"] = latitude
+        record["longitude"] = longitude
+        record["grid_size"] = grid_size
+        record["timestamp"] = timestamp
+        record["data"] = {}
+        for extractor_name, extractor in extractors.items():
+            response = extractor.get_data(latitude, longitude)
+            if response["status"] == "failed":
+                failed += 1
+                continue
+            record["data"][extractor_name] = response["data"]
+            successful += 1
+        if len(record["data"]) != len(extractors):
+            continue
+        raw_data.append(record)
 
     logger.info(f"Extraction completed: {successful} success, {failed} failed")
     return raw_data
@@ -225,16 +226,8 @@ def load(transformed_data: dict, table: str, loader: Load) -> int:
     logger.info(f"Loading completed: {successful_loads} success, {failed_loads} failed")
     return 0 if failed_loads == 0 else -1
 
-def main():
-    logger.info("Starting ETL pipeline")
-    app_args = get_args(logger)
-    if app_args is None:
-        logger.info("Argument parsing failed. Exiting.")
-        return
-    app_secrets = get_secrets(app_args.target_table, logger)
-    if app_secrets is None:
-        logger.info("Failed to retrieve secrets. Exiting.")
-        return
+def etl(app_secrets: Dict, app_args, data_coordinates: list):
+    logger.info(f"Thread [{threading.current_thread().name}] started ETL process.")
     engine = get_engine(
         database_user = app_secrets["database"]["DATABASE_USER"],
         database_password = app_secrets["database"]["DATABASE_PASSWORD"],
@@ -245,14 +238,6 @@ def main():
     if engine is None:
         logger.info("Database connection failed. Exiting.")
         return
-    
-    data_coordinates = get_coordinates_mesh(
-        max_latitude = app_args.max_latitude,
-        min_latitude = app_args.min_latitude,
-        max_longitude = app_args.max_longitude,
-        min_longitude = app_args.min_longitude,
-        grid_size = app_args.grid_size
-    )
 
     if add_missing_coordinates(data_coordinates, engine) == -1:
         logger.info("Failed to add missing coordinates. Exiting.")
@@ -288,8 +273,48 @@ def main():
     if result == -1:
         logger.info("Loading data failed. Exiting.")
         return
+    logger.info(f"Thread [{threading.current_thread().name}] completed ETL process successfully.")
+    
+def main():
+    logger.info("Starting ETL pipeline")
+    app_args = get_args(logger)
+    if app_args is None:
+        logger.info("Argument parsing failed. Exiting.")
+        return
+    app_secrets = get_secrets(app_args.target_table, logger)
+    if app_secrets is None:
+        logger.info("Failed to retrieve secrets. Exiting.")
+        return
+    
+    data_coordinates = get_coordinates_mesh(
+        max_latitude = app_args.max_latitude,
+        min_latitude = app_args.min_latitude,
+        max_longitude = app_args.max_longitude,
+        min_longitude = app_args.min_longitude,
+        grid_size = app_args.grid_size
+    )
+
+    if not data_coordinates:
+        logger.info("No coordinates generated. Exiting.")
+        return
+    
+    data_coordinates_split = split_data_coordinates(data_coordinates)
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers = MAX_WORKERS)
+    
+    for coordinates_chunk in data_coordinates_split:
+        pool.submit(
+            etl,
+            app_secrets = app_secrets,
+            app_args = app_args,
+            data_coordinates = coordinates_chunk
+        )
+
+    pool.shutdown(wait = True)
+
+    logger.info("ETL pipeline completed successfully.")
 
 if __name__ == "__main__":
     global logger
     logger = setup_logger()
+
     main()
